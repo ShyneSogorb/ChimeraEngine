@@ -1,6 +1,6 @@
 ﻿#version 450
 
-layout (Location = 0) out vec3 outColor;
+layout (location = 0) out vec3 outColor;
 
 void main()
 {

@@ -6,20 +6,21 @@
 #include <vk_descriptors.h>
 #include <vk_types.h>
 
+#include "Camera.h"
+
 struct FMeshAsset;
 
 struct FFrameData
 {
+	//Semophore
+	VkSemaphore SwapchainSemaphore, RenderSemaphore { nullptr };
+	VkFence RenderFence { nullptr };
+	
 	VkCommandPool CommandPool{ nullptr };
 	VkCommandBuffer MainCommandBuffer{ nullptr };
 	
-	//Semophore
-	VkSemaphore SwapchainSemaphore { nullptr };
-	VkSemaphore RenderSemaphore { nullptr };
-	VkFence RenderFence { nullptr };
-	
 	FDeletionQueue DeletionQueue;
-	
+	FDescriptorAllocator FrameDescriptors;
 };
 
 struct FComputePushConstants
@@ -46,6 +47,40 @@ struct FComputeEffect
 	FComputePushConstants Data{};
 };
 
+struct FGltfMetalicRoughness
+{
+	FMaterialPipeline OpaquePipeline;
+	FMaterialPipeline TransparentPipeline;
+	
+	VkDescriptorSetLayout MaterialLayout{};
+	
+	struct FMaterialConstants
+	{
+		FColor ColorFactors;
+		FColor MetalRoughFactors;
+		//padding we need it anyway for uniform buffers
+		char Padding[256 - sizeof(ColorFactors) - sizeof(MetalRoughFactors)];
+	};
+	
+	struct FMaterialResources
+	{
+		FAllocatedImage ColorImage;
+		VkSampler ColorSampler;
+		FAllocatedImage MetalRoughImage;
+		VkSampler MetalRoughSampler;
+		VkBuffer DataBuffer;
+		uint32 DataBufferOffset;
+	};
+	
+	FDescriptorWriter Writer;
+	
+	void BuildPipelines(class VulkanEngine& Engine);	
+	void ClearResources(VkDevice Device);
+	
+	FMaterialInstance WriteMaterial(VkDevice, EMaterialPass Pass, const FMaterialResources& Resources, FDescriptorAllocator& DescriptorAllocator);
+	
+};
+
 constexpr unsigned int FRAME_OVERLAP = 2;
 
 class VulkanEngine {
@@ -54,7 +89,7 @@ public:
 	bool bIsInitialized{ false };
 	int FrameNumber {0};
 	bool bStopRendering{ false };
-	VkExtent2D WindowExtent{ 1700 , 900 };
+	VkExtent2D WindowExtent{ 1920 , 1080 };
 
 	struct SDL_Window* Window{ nullptr };
 
@@ -87,7 +122,7 @@ public:
 	VkDevice Device{ nullptr };
 	
 	//Window surface
-	VkSurfaceKHR Surface{ nullptr };
+	VkSurfaceKHR WindowSurface{ nullptr };
 	
 	VkSwapchainKHR Swapchain{ nullptr };
 	VkFormat SwapchainImageFormat {VK_FORMAT_B8G8R8A8_UNORM};
@@ -114,6 +149,7 @@ public:
 	FAllocatedImage DepthImage {nullptr};
 	
 	VkExtent2D DrawExtent{ 1920, 1080 };
+	float RenderScale{ 1.0f };
 	
 	FDescriptorAllocator GlobalDescriptorAllocator{};
 	
@@ -145,13 +181,19 @@ public:
 	VkPipelineLayout MeshPipelineLayout{nullptr};
 	VkPipeline MeshPipeline{nullptr};
 	
-	FGpuMeshBuffers Rectangle;
+	FGpuSceneData SceneData;
 	
-	TArray<TSharedPtr<FMeshAsset>> TestMeshes;
+	VkDescriptorSetLayout GpuSceneDataDescriptorLayout{ nullptr };
+	
+	bool bResizeRequest{ false };
+	
+	FAllocatedImage CreateImage(VkExtent3D Size, VkFormat Format, VkImageUsageFlags Usage, bool bMipmapped = false);
+	FAllocatedImage CreateImage(void* Data, VkExtent3D Size, VkFormat Format, VkImageUsageFlags Usage, bool bMipmapped = false);
+	void DestroyImage(const FAllocatedImage& Img);
 	
 private:
 	
-	
+	void ResizeSwapChain();
 	void InitImgUi();
 	void InitPipelines();
 	void InitBackgroundPipelines();
@@ -171,4 +213,33 @@ private:
 	
 	void DrawBackground(VkCommandBuffer Cmd);
 	void DrawGeometry(VkCommandBuffer Cmd);
+	
+	FAllocatedImage WhiteImage{ nullptr };
+	FAllocatedImage BlackImage{ nullptr };
+	FAllocatedImage GreyImage{ nullptr };
+	FAllocatedImage ErrorCheckerboardImage{ nullptr };
+	
+	VkSampler DefaultSamplerLinear;
+	VkSampler DefaultSamplerNearest;
+	VkDescriptorSetLayout SingleImageDescriptorLayout{ nullptr };
+	
+	FMaterialInstance DefaultData;
+	FGltfMetalicRoughness MetalRoughMat;
+	
+	FDrawContext MainDrawContext;
+	TMap<FString, TSharedPtr<FNode>> LoadedNodes;
+	
+	void UpdateScene();
+	
+	TArray<TSharedPtr<FMeshAsset>> TestMeshes;
+	
+	FCamera MainCamera;
+	
+};
+
+struct FMeshNode : public FNode
+{
+	TSharedPtr<FMeshAsset> Mesh;
+	
+	virtual void Draw(const FMatrix& TopMatrix, FDrawContext& Ctx) override;
 };

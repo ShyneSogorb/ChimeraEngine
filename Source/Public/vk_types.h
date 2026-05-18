@@ -2,68 +2,18 @@
 // or project specific include files.
 #pragma once
 
-#include <memory>
-#include <optional>
-#include <string>
-#include <vector>
-#include <span>
-#include <array>
-#include <functional>
-#include <deque>
-#include <expected>
+
+
 
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_enum_string_helper.h>
 #include <vk_mem_alloc.h>
 
+#include "Memory.h"
 #include <fmt/core.h>
 
-#include <glm/mat4x4.hpp>
-#include <glm/vec4.hpp>
+#include "Types.h"
 
-template <typename T> 
-using TArray = std::vector<T>;
-
-template <typename T>
-using TOptional = std::optional<T>;
-
-template <typename T>
-using TSharedPtr = std::shared_ptr<T>;
-
-template <typename T, size_t N>
-using TStaticArray = std::array<T, N>;
-
-template <typename T, typename ErrorType>
-using TExpected = std::expected<T, ErrorType>;
-
-using FVector4 = glm::vec4;
-using FVector3 = glm::vec3;
-using FVector = FVector3;
-
-#define FORWARD_VECTOR { 1.f, 0.f, 0.f}
-
-using FMatrix4 = glm::mat4;
-using FMatrix = FMatrix4;
-
-using uint8 = uint8_t;
-using uint16 = uint16_t;
-using uint32 = uint32_t;
-using uint64 = uint64_t;
-
-using int8 = int8_t;
-using int16 = int16_t;
-using int32 = int32_t;
-using int64 = int64_t;
-
-using FString = std::string;
-
-namespace FMemory
-{
-    inline void* Memcpy(void* Dst, void const* Src, size_t Size)
-    {
-        return memcpy(Dst, Src, Size);
-    }
-}
 
 #define VK_CHECK(x)                                                     \
     do {                                                                \
@@ -76,7 +26,7 @@ namespace FMemory
 
 struct FDeletionQueue
 {
-    void PushFunction(std::function<void()>&& Function)
+    void PushFunction(TFunction<void()>&& Function)
     {
         Deletors.push_back(Function);
     }
@@ -92,7 +42,7 @@ struct FDeletionQueue
     }
 	
 private:
-    std::deque<std::function<void()>> Deletors;
+    TDeque<TFunction<void()>> Deletors;
 };
 
 
@@ -114,11 +64,11 @@ struct FAllocatedBuffer
 
 struct FVertex
 {
-    FVector3 Position;
+    FVector3f Position;
     float UVx;
-    FVector3 Normal;
+    FVector3f Normal;
     float UVy;
-    FVector4 Color;
+    FVector4f Color;
 };
 
 //holds the resources needed for a mesh
@@ -134,4 +84,89 @@ struct FGpuDrawPushConstants
 {
     FMatrix WorldMatrix;
     VkDeviceAddress VertexBuffer;
+};
+
+struct FGpuSceneData
+{
+    FMatrix View;
+    FMatrix Projection;
+    FMatrix ViewProjection;
+    FColor AmbientColor;
+    FVector4 SunlightDirection; //w for intensity
+    FColor SunlightColor;
+};
+
+enum class EMaterialPass : uint8
+{
+    Opaque,
+    Transparent,
+    Other
+};
+
+struct FMaterialPipeline
+{
+    VkPipeline Pipeline;
+    VkPipelineLayout Layout;
+};
+
+struct FMaterialInstance
+{
+    FMaterialPipeline* Pipeline;
+    VkDescriptorSet MaterialSet;
+    EMaterialPass PassType;
+};
+
+
+struct FRenderObject
+{
+    uint32 IndexCount;
+    uint32 FirstIndex;
+    VkBuffer IndexBuffer;
+    
+    FMaterialInstance* MaterialInstance;
+    
+    FMatrix Transform;
+    VkDeviceAddress VertexBufferAddress;
+};
+
+struct FDrawContext
+{
+    TArray<FRenderObject> OpaqueSurfaces;
+};
+
+//base class for a renderable dynamic object
+class IRenderable
+{
+    virtual void Draw(const FMatrix& TopMatrix, FDrawContext& ctx) = 0;
+};
+
+// implementation of a drawable scene node.
+// the scene node can hold children and will also keep a transform to propagate
+// to them
+struct FNode : public IRenderable
+{
+    //Parent pointer must be weak to avoid circular dependency
+    TWeakPtr<FNode> Parent;
+    TArray<TSharedPtr<FNode>> Children;
+    
+    FMatrix LocalTransform{1.f};
+    FMatrix WorldTransform{1.f};
+    
+    void RefreshTransform(const FMatrix& ParentMatrix)
+    {
+        WorldTransform = ParentMatrix * LocalTransform;
+        for (auto& Child : Children)
+        {
+            Child->RefreshTransform(WorldTransform);
+        }
+    }
+    
+    virtual void Draw(const FMatrix& TopMatrix, FDrawContext& ctx) override
+    {
+        //Draw children
+        for (auto& Child : Children)
+        {
+            Child->Draw(TopMatrix, ctx);
+        }
+    }
 };

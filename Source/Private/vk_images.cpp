@@ -17,7 +17,7 @@ void vkutil::TransitionImage(VkCommandBuffer Cmd, VkImage Image, VkImageLayout C
     ImageBarrier.newLayout = NewLayout;
     
     VkImageAspectFlags AspectMask = (NewLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-    ImageBarrier.subresourceRange = vkinit::image_subresource_range(AspectMask);
+    ImageBarrier.subresourceRange = Vkinit::image_subresource_range(AspectMask);
     ImageBarrier.image = Image;
     
     VkDependencyInfo DepInfo {};

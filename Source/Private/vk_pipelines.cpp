@@ -9,7 +9,7 @@ bool vkutil::LoadShaderModule(const char* FilePath, VkDevice Device, VkShaderMod
     // spirv expects the buffer to be on uint32, so make sure to reserve a int
     using SpirvType = uint32_t;
     
-    std::string Path = fmt::format("{:s}{:s}", SHADER_PATH, FilePath);
+    FString Path = fmt::format("{:s}{:s}", SHADER_PATH, FilePath);
     if (!std::filesystem::exists(Path)) return false;
     
     //Open file
@@ -131,11 +131,11 @@ void FPipelineBuilder::SetShaders(VkShaderModule VertexShader, VkShaderModule Fr
     ShaderStages.clear();
     
     ShaderStages.push_back(
-        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, VertexShader)
+        Vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, VertexShader)
     );
     
     ShaderStages.push_back(
-        vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, FragmentShader)
+        Vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, FragmentShader)
     );
 }
 
@@ -177,6 +177,30 @@ void FPipelineBuilder::DisableBlending()
     ColorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     //no blending
     ColorBlendAttachment.blendEnable = VK_FALSE;
+}
+
+void FPipelineBuilder::EnableBlendingAdditive()
+{
+    ColorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    ColorBlendAttachment.blendEnable = VK_TRUE;
+    ColorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    ColorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    ColorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    ColorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    ColorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    ColorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+}
+
+void FPipelineBuilder::EnableBlendingAlphaBlend()
+{
+    ColorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    ColorBlendAttachment.blendEnable = VK_TRUE;
+    ColorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    ColorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    ColorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    ColorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    ColorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    ColorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
 }
 
 void FPipelineBuilder::SetColorAttachmentFormat(VkFormat Format)

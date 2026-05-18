@@ -133,12 +133,30 @@ file(GLOB_RECURSE GLSL_SOURCE_FILES
 
 foreach(GLSL ${GLSL_SOURCE_FILES})
     get_filename_component(FILE_NAME ${GLSL} NAME)
-    set(SPIRV "${PROJECT_SOURCE_DIR}/Shaders/compiled/${FILE_NAME}.spv")
+    set(SPIRV "${PROJECT_SOURCE_DIR}/Shaders/Compiled/${FILE_NAME}.spv")
+    
+    #ignore include directories
+    if (GLSL MATCHES ".*((\.inc)|(\.glsl))$")
+        continue()
+    endif()
+
+    # Strip UTF-8 BOM if present before compiling
+    set(GLSL_STRIPPED "${CMAKE_BINARY_DIR}/ShaderStripped/${FILE_NAME}")
+    add_custom_command(
+            OUTPUT ${GLSL_STRIPPED}
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/ShaderStripped"
+            COMMAND python3 -c
+            "import sys; d=open('${GLSL}','rb').read(); open('${GLSL_STRIPPED}','wb').write(d[3:] if d[:3]==b'\\xef\\xbb\\xbf' else d)"
+            DEPENDS ${GLSL}
+    )
+    
     add_custom_command(
             OUTPUT ${SPIRV}
             COMMAND ${GLSL_VALIDATOR} -V ${GLSL} -o ${SPIRV}
             DEPENDS ${GLSL}
     )
+    
+    message(STATUS "Shader: ${GLSL} -> ${SPIRV}")
     list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach()
 

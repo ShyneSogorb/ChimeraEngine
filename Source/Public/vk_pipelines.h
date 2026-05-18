@@ -31,6 +31,8 @@ struct FPipelineBuilder
     void SetCullMode(VkCullModeFlags CullMode, VkFrontFace FrontFace);
     void SetMultisamplingNone();
     void DisableBlending();
+    void EnableBlendingAdditive();
+    void EnableBlendingAlphaBlend();
     void SetColorAttachmentFormat(VkFormat Format);
     void SetDepthFormat(VkFormat Format);
     void DisableDepthTest();

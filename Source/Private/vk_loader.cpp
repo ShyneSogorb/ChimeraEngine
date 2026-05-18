@@ -15,9 +15,11 @@
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
 
+#include "Memory.h"
+
 using FGOptions = fastgltf::Options;
 
-constexpr bool OverrideColors = true;
+constexpr bool OverrideColors = false;
 
 
 TOptional<TArray<TSharedPtr<FMeshAsset>>> vkLoader::LoadGltfMeshes(VulkanEngine& Engine, FPath FilePath)
@@ -42,7 +44,7 @@ TOptional<TArray<TSharedPtr<FMeshAsset>>> vkLoader::LoadGltfMeshes(VulkanEngine&
     auto Load = Parser.loadGltfBinary(Data, FilePath.parent_path(), GltfOpts);
     if (Load)
     {
-        Asset = std::move(Load.get());
+        Asset = MoveTemp(Load.get());
         fmt::print("Successfully loaded asset {}\n", FilePath.string());
     }
     else
@@ -91,9 +93,9 @@ TOptional<TArray<TSharedPtr<FMeshAsset>>> vkLoader::LoadGltfMeshes(VulkanEngine&
                 fastgltf::Accessor& PosAccessor = Asset.accessors[Primitive.findAttribute("POSITION")->accessorIndex];
                 Vertices.resize(Vertices.size() + PosAccessor.count);
                 
-                //@warning glm::vec3 instad of FVector since FVector can be float or double
-                fastgltf::iterateAccessorWithIndex<glm::vec3>(Asset, PosAccessor,
-                    [&](glm::vec3 Position, size_t Index)
+                //@warning FVector3f (vector float) instad of FVector since FVector can be float or double
+                fastgltf::iterateAccessorWithIndex<FVector3f>(Asset, PosAccessor,
+                    [&](FVector3f Position, size_t Index)
                     {
                         FVertex NewVtx{};
                         NewVtx.Position = Position;
@@ -111,8 +113,8 @@ TOptional<TArray<TSharedPtr<FMeshAsset>>> vkLoader::LoadGltfMeshes(VulkanEngine&
                 auto Normals = Primitive.findAttribute("NORMAL");
                 if (Normals != Primitive.attributes.end())
                 {
-                    fastgltf::iterateAccessorWithIndex<glm::vec3>(Asset, Asset.accessors[Normals->accessorIndex],
-                        [&](glm::vec3 Normal, size_t Index)
+                    fastgltf::iterateAccessorWithIndex<FVector3f>(Asset, Asset.accessors[Normals->accessorIndex],
+                        [&](FVector3f Normal, size_t Index)
                         {
                             Vertices[InitialVertex + Index].Normal = Normal;
                         } 
@@ -125,8 +127,8 @@ TOptional<TArray<TSharedPtr<FMeshAsset>>> vkLoader::LoadGltfMeshes(VulkanEngine&
                 auto Uv = Primitive.findAttribute("TEXCOORD_0");
                 if (Uv != Primitive.attributes.end())
                 {
-                    fastgltf::iterateAccessorWithIndex<glm::vec2>(Asset, Asset.accessors[Uv->accessorIndex],
-                        [&](glm::vec2 UV, size_t Index)
+                    fastgltf::iterateAccessorWithIndex<FVector2f>(Asset, Asset.accessors[Uv->accessorIndex],
+                        [&](FVector2f UV, size_t Index)
                         {
                             Vertices[InitialVertex + Index].UVx = UV.x;
                             Vertices[InitialVertex + Index].UVy = UV.y;
@@ -140,8 +142,8 @@ TOptional<TArray<TSharedPtr<FMeshAsset>>> vkLoader::LoadGltfMeshes(VulkanEngine&
                 auto Colors = Primitive.findAttribute("COLOR_0");
                 if (Colors != Primitive.attributes.end())
                 {
-                    fastgltf::iterateAccessorWithIndex<glm::vec4>(Asset, Asset.accessors[Colors->accessorIndex],
-                        [&](glm::vec4 Color, size_t Index)
+                    fastgltf::iterateAccessorWithIndex<FVector4f>(Asset, Asset.accessors[Colors->accessorIndex],
+                        [&](FVector4f Color, size_t Index)
                         {
                             Vertices[InitialVertex + Index].Color = Color;
                         }
@@ -156,12 +158,12 @@ TOptional<TArray<TSharedPtr<FMeshAsset>>> vkLoader::LoadGltfMeshes(VulkanEngine&
         if constexpr (OverrideColors)
         {
             for (FVertex& vtx : Vertices)
-                vtx.Color = glm::vec4{vtx.Normal, 1.f};
+                vtx.Color = FVector4f{vtx.Normal, 1.f};
         }
         
         NewMesh.MeshBuffers = Engine.UploadMesh(Indices, Vertices);
         
-        Meshes.emplace_back(std::make_shared<FMeshAsset>(std::move(NewMesh)));
+        Meshes.emplace_back(MakeShared<FMeshAsset>(MoveTemp(NewMesh)));
     }
 
     return Meshes;
