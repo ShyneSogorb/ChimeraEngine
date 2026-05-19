@@ -132,6 +132,7 @@ struct FRenderObject
 struct FDrawContext
 {
     TArray<FRenderObject> OpaqueSurfaces;
+    TArray<FRenderObject> TransparentSurfaces;
 };
 
 //base class for a renderable dynamic object

@@ -7,165 +7,552 @@
 
 #include "vk_engine.h"
 #include "vk_initializers.h"
+#include <type_traits>
 #include "vk_types.h"
 #include <glm/gtx/quaternion.hpp>
 
 
 #include <fastgltf/glm_element_traits.hpp>
+#include <fastgltf/types.hpp>
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
 
 #include "Memory.h"
+#include "Transform.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 using FGOptions = fastgltf::Options;
 
 constexpr bool OverrideColors = false;
 
-
-TOptional<TArray<TSharedPtr<FMeshAsset>>> vkLoader::LoadGltfMeshes(VulkanEngine& Engine, FPath FilePath)
+VkFilter ExtractFilter(fastgltf::Filter Filter)
 {
-    FilePath = fmt::format("{}{}", RESOURCES_PATH, FilePath.string());
+    using Filters = fastgltf::Filter;
     
-    std::cout << "Loading GLTF: " << FilePath << std::endl;
+    switch (Filter)
+    {
+        //nearest samplers
+        case Filters::Nearest:
+        case Filters::NearestMipMapLinear:
+        case Filters::NearestMipMapNearest:
+            return VK_FILTER_NEAREST;
+        
+            //linear samplers
+        case Filters::Linear:
+        case Filters::LinearMipMapLinear:
+        case Filters::LinearMipMapNearest:
+        default:
+            return VK_FILTER_LINEAR;
+    }
+}
+
+VkSamplerMipmapMode ExtractMipmapMode(fastgltf::Filter Filter)
+{
+    using Filters = fastgltf::Filter;
     
-    auto DataExp = fastgltf::GltfDataBuffer::FromPath(FilePath);
-    if (!DataExp) {
-        std::cout << "Failed to load GLTF file: " << FilePath << std::endl;
-        return {};
+    switch (Filter)
+    {
+        case Filters::NearestMipMapNearest:
+        case Filters::LinearMipMapNearest:
+            return VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        
+        case Filters::NearestMipMapLinear:
+        case Filters::LinearMipMapLinear:
+        default:
+            return VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    }
+}
+
+void FLoadedGltf::Draw(const FMatrix& TopMatrix, FDrawContext& ctx)
+{
+    //create renderables from scenenodes
+    for (auto& Node : TopNodes)
+    {
+        Node->Draw(TopMatrix, ctx);
+    }
+}
+
+void FLoadedGltf::ClearAll()
+{
+    
+    VkDevice Device{Creator->Device};
+    
+    DescriptorPool.DestroyPool(Device);
+    Creator->DestroyBuffer(MaterialDataBuffer);
+    
+    for (auto& [K, V] : Meshes)
+    {
+        Creator->DestroyBuffer(V->MeshBuffers.IndexBuffer);
+        Creator->DestroyBuffer(V->MeshBuffers.VertexBuffer);
     }
     
-    fastgltf::GltfDataBuffer& Data = DataExp.get();
+    for (auto& [K, V] : Images)
+    {
+        if (V.Image == Creator->ErrorCheckerboardImage.Image)
+        {
+            continue; // do not destroy default images
+        }    
+        Creator->DestroyImage(V);
+    }
     
-    constexpr auto GltfOpts = FGOptions::LoadGLBBuffers | FGOptions::LoadExternalBuffers;
+    for (auto& Sampler : Samplers)
+    {
+        vkDestroySampler(Device, Sampler, nullptr);
+    }
     
-    fastgltf::Asset Asset{};
+}
+
+FOptionalGltfData LoadGltfMeshes(VulkanEngine& Engine, FPath FilePath)
+{
+    using Opts = fastgltf::Options;
+    FilePath = fmt::format("{}{}", RESOURCES_PATH, FilePath.string());
+    
+    fmt::print("Loading GLTF file: {}\n", FilePath.string());
+    
+    TSharedPtr<FLoadedGltf> Scene = MakeShared<FLoadedGltf>();
+    Scene->Creator = &Engine;
+    FLoadedGltf& File = *Scene;
+    
     fastgltf::Parser Parser{};
     
-    auto Load = Parser.loadGltfBinary(Data, FilePath.parent_path(), GltfOpts);
-    if (Load)
+    constexpr auto GltfOptions = Opts::DontRequireValidAssetMember | Opts::AllowDouble | Opts::LoadGLBBuffers | Opts::LoadExternalBuffers;
+    //Opts::LoadExternalImages;
+    
+    fastgltf::GltfDataBuffer Data{};
+    if (auto DataOpt = fastgltf::GltfDataBuffer::FromPath(FilePath))
     {
-        Asset = MoveTemp(Load.get());
-        fmt::print("Successfully loaded asset {}\n", FilePath.string());
+        Data = MoveTemp(*MoveTemp(DataOpt));
+    }
+    
+    fastgltf::Asset Gltf;
+    
+    std::filesystem::path Path = FilePath;
+    
+    auto Type = fastgltf::determineGltfFileType(Data);
+    if (Type == fastgltf::GltfType::glTF)
+    {
+        auto Load = Parser.loadGltf(Data, Path.parent_path(), GltfOptions);
+        if (Load)
+        {
+            Gltf = MoveTemp(Load.get());
+        }else
+        {
+            std::cerr << "Failed to load GLTF file: " << fastgltf::to_underlying(Load.error()) << std::endl;
+            return {};
+        }
+    } 
+    else if (Type == fastgltf::GltfType::GLB)
+    {
+        auto Load = Parser.loadGltfBinary(Data, Path.parent_path(), GltfOptions);
+        if (Load)
+        {
+            Gltf = MoveTemp(Load.get());
+        }else
+        {
+            std::cerr << "Failed to load GLB file: " << fastgltf::to_underlying(Load.error()) << std::endl;
+            return {};
+        }
     }
     else
     {
-        fmt::print("Failed to load glTF: {} \n", fastgltf::to_underlying(Load.error()));
+        std::cerr << "Unknown GLTF file type" << std::endl;
         return {};
     }
     
-    TArray<TSharedPtr<FMeshAsset>> Meshes{};
+    // we can stimate the descriptors we will need accurately
+    TArray<FDescriptorAllocator::FPoolSizeRation> Sizes{
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},
+    };
     
-    //use the same vectors for all meshes so that the memory doesnt reallocate as often
-    TArray<uint32> Indices{};
-    TArray<FVertex> Vertices{};
+    File.DescriptorPool.InitPool(Engine.Device, Gltf.materials.size(), Sizes);
     
-    for (fastgltf::Mesh& Mesh : Asset.meshes)
+    //load samplers
+    for (fastgltf::Sampler& Sampler : Gltf.samplers)
     {
-        FMeshAsset NewMesh{};
+        VkSamplerCreateInfo SamplerInfo{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, .pNext = nullptr};
+        SamplerInfo.maxLod = VK_LOD_CLAMP_NONE;
+        SamplerInfo.minLod = 0;
         
-        NewMesh.Name = Mesh.name;
+        SamplerInfo.magFilter = ExtractFilter(Sampler.magFilter.value_or(fastgltf::Filter::Nearest));
+        SamplerInfo.minFilter = ExtractFilter(Sampler.minFilter.value_or(fastgltf::Filter::Nearest));
         
-        //Clear the mesh arrays each mesh to avoid merging by error
+        SamplerInfo.mipmapMode = ExtractMipmapMode(Sampler.minFilter.value_or(fastgltf::Filter::Nearest));
+        
+        VkSampler NewSampler;
+        vkCreateSampler(Engine.Device, &SamplerInfo, nullptr, &NewSampler);
+        
+        File.Samplers.push_back(NewSampler);
+    }
+    
+    // temporal arrays for all the objects to use while creating the GLTF data
+    TArrayShared<FMeshAsset> Meshes;
+    TArrayShared<FNode> Nodes;
+    TArray<FAllocatedImage> Images;
+    TArrayShared<FGltfMaterial> Materials;
+    
+    //load all textures
+    for (fastgltf::Image& Image : Gltf.images)
+    {
+        TOptional<FAllocatedImage> Img = LoadImage(Engine, Gltf, Image);
+        
+        if (Img.has_value())
+        {
+            Images.push_back(*Img);
+            File.Images[Image.name.c_str()] = *Img;
+        }
+        else
+        {
+            // we failed to load, so lets give the slot a default white texture to not completely break loading
+            Images.push_back(Engine.ErrorCheckerboardImage);
+            fmt::println("Gltf failed to load texture {:s}", Image.name);
+        }
+    }
+    
+    //Create buffer to hold the material data
+    File.MaterialDataBuffer = Engine.CreateBuffer(sizeof(FGltfMetalicRoughness::FMaterialConstants) * Gltf.materials.size(),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+    
+    int32 DataIndex = 0;
+    auto SceneMaterialConstants = static_cast<FGltfMetalicRoughness::FMaterialConstants*>(File.MaterialDataBuffer.Info.pMappedData);
+    
+    for (fastgltf::Material& Mat : Gltf.materials)
+    {
+        TSharedRef<FGltfMaterial> NewMat = MakeShared<FGltfMaterial>();
+        Materials.push_back(NewMat);
+        File.Materials[Mat.name.c_str()] = NewMat;
+        
+        FGltfMetalicRoughness::FMaterialConstants Constants;
+        
+        Constants.ColorFactors = {
+            Mat.pbrData.baseColorFactor[0],
+            Mat.pbrData.baseColorFactor[1],
+            Mat.pbrData.baseColorFactor[2],
+            Mat.pbrData.baseColorFactor[3],
+        };
+        
+        Constants.MetalRoughFactors.x = Mat.pbrData.metallicFactor;
+        Constants.MetalRoughFactors.y = Mat.pbrData.roughnessFactor;
+        
+        //write parameters to buffer
+        SceneMaterialConstants[DataIndex] = Constants;
+        
+        EMaterialPass PassType = EMaterialPass::Opaque;
+        if (Mat.alphaMode == fastgltf::AlphaMode::Blend)
+        {
+            PassType = EMaterialPass::Transparent;
+        }
+        
+        FGltfMetalicRoughness::FMaterialResources MaterialResources;
+        
+        //Default the material textures
+        MaterialResources.ColorImage = Engine.WhiteImage;
+        MaterialResources.ColorSampler = Engine.DefaultSamplerLinear;
+        MaterialResources.MetalRoughImage = Engine.WhiteImage;
+        MaterialResources.MetalRoughSampler = Engine.DefaultSamplerLinear;
+        
+        //Set the uniform buffer for the material data
+        MaterialResources.DataBuffer = File.MaterialDataBuffer.Buffer;
+        MaterialResources.DataBufferOffset = DataIndex * sizeof(FGltfMetalicRoughness::FMaterialConstants);
+        
+        //Grab textures from gltf file
+        if (Mat.pbrData.baseColorTexture.has_value())
+        {
+            size_t ImgIndex = Gltf.textures[Mat.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
+            size_t SamplerIndex = Gltf.textures[Mat.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
+            
+            MaterialResources.ColorImage = Images[ImgIndex];
+            MaterialResources.ColorSampler = File.Samplers[SamplerIndex];
+        }
+        
+        //build material
+        NewMat->Data = Engine.MetalRoughMat.WriteMaterial(Engine.Device, PassType, MaterialResources, File.DescriptorPool);
+        
+        DataIndex++;
+    }
+    
+    // use the same vectors for all meshes so that the memory doesnt reallocate as often
+    TArray<uint32> Indices;
+    TArray<FVertex> Vertices;
+    
+    for (fastgltf::Mesh& Mesh : Gltf.meshes)
+    {
+        TSharedRef<FMeshAsset> NewMesh = MakeShared<FMeshAsset>();
+        Meshes.push_back(NewMesh);
+        File.Meshes[Mesh.name.c_str()] = NewMesh;
+        NewMesh->Name = Mesh.name;
+        
+        // clear the mesh arrays each mesh, we dont want to merge them by error
         Indices.clear();
         Vertices.clear();
-
+        
         for (auto&& Primitive : Mesh.primitives)
         {
-            FGeoSurface NewSurface{};
+            FGeoSurface NewSurface;
             NewSurface.StartIndex = (uint32)Indices.size();
-            NewSurface.Count = (uint32)Asset.accessors[Primitive.indicesAccessor.value()].count;
+            NewSurface.Count = (uint32)Gltf.accessors[Primitive.indicesAccessor.value()].count;
             
-            size_t InitialVertex = Vertices.size();
+            size_t InitialVtx = Vertices.size();
             
-            //Load indexes
+            //load indexes
             {
-                fastgltf::Accessor& IndexAccessor = Asset.accessors[Primitive.indicesAccessor.value()];
+                fastgltf::Accessor& IndexAccessor = Gltf.accessors[Primitive.indicesAccessor.value()];
                 Indices.reserve(Indices.size() + IndexAccessor.count);
                 
-                fastgltf::iterateAccessor<uint32>(Asset, IndexAccessor, [&](uint32 idx)
+                fastgltf::iterateAccessor<uint32>(Gltf, IndexAccessor, [&](uint32 i)
                 {
-                    Indices.push_back(idx + InitialVertex);
+                   Indices.push_back(i + InitialVtx); 
                 });
             }
             
-            //Load vertex positions
+            // load vertex positions
             {
-                fastgltf::Accessor& PosAccessor = Asset.accessors[Primitive.findAttribute("POSITION")->accessorIndex];
-                Vertices.resize(Vertices.size() + PosAccessor.count);
+                fastgltf::Accessor& PosAccess = Gltf.accessors[Primitive.findAttribute("POSITION")->accessorIndex];
+                Vertices.resize(Vertices.size() + PosAccess.count);
                 
-                //@warning FVector3f (vector float) instad of FVector since FVector can be float or double
-                fastgltf::iterateAccessorWithIndex<FVector3f>(Asset, PosAccessor,
-                    [&](FVector3f Position, size_t Index)
-                    {
-                        FVertex NewVtx{};
-                        NewVtx.Position = Position;
-                        NewVtx.Normal = FORWARD_VECTOR;
-                        NewVtx.Color = FVector4{1};
-                        NewVtx.UVx = 0;
-                        NewVtx.UVy = 0;
-                        Vertices[InitialVertex + Index] = NewVtx;
-                    }
-                );
+                fastgltf::iterateAccessorWithIndex<FVector3f>(Gltf, PosAccess, [&](FVector3f v, size_t i)
+                {
+                   FVertex Vertex;
+                    Vertex.Position = v;
+                    Vertex.Normal = {1, 0, 0};
+                    Vertex.Color = FVector4f(1.f);
+                    Vertex.UVx = 0;
+                    Vertex.UVy = 0;
+                    Vertices[InitialVtx + i] = Vertex;
+                });
             }
             
             //Load vertex normal
             {
                 auto Normals = Primitive.findAttribute("NORMAL");
-                if (Normals != Primitive.attributes.end())
+                if ( Normals != Primitive.attributes.end())
                 {
-                    fastgltf::iterateAccessorWithIndex<FVector3f>(Asset, Asset.accessors[Normals->accessorIndex],
-                        [&](FVector3f Normal, size_t Index)
+                    fastgltf::iterateAccessorWithIndex<FVector3f>(Gltf, Gltf.accessors[(*Normals).accessorIndex],
+                        [&](FVector3f v, size_t i)
                         {
-                            Vertices[InitialVertex + Index].Normal = Normal;
-                        } 
-                    );
+                           Vertices[InitialVtx + i].Normal = v;
+                        });
                 }
             }
             
             //Load UVs
             {
-                auto Uv = Primitive.findAttribute("TEXCOORD_0");
-                if (Uv != Primitive.attributes.end())
+                auto UV = Primitive.findAttribute("TEXCOORD_0");
+                if ( UV != Primitive.attributes.end())
                 {
-                    fastgltf::iterateAccessorWithIndex<FVector2f>(Asset, Asset.accessors[Uv->accessorIndex],
-                        [&](FVector2f UV, size_t Index)
+                    fastgltf::iterateAccessorWithIndex<FVector2f>(Gltf, Gltf.accessors[(*UV).accessorIndex],
+                        [&](FVector2f v, size_t i)
                         {
-                            Vertices[InitialVertex + Index].UVx = UV.x;
-                            Vertices[InitialVertex + Index].UVy = UV.y;
-                        }
-                    );
+                           Vertices[InitialVtx + i].UVx = v.x;
+                           Vertices[InitialVtx + i].UVy = v.y;
+                        });
                 }
             }
             
-            //load vertex colors
+            //Load vertex normal
             {
                 auto Colors = Primitive.findAttribute("COLOR_0");
-                if (Colors != Primitive.attributes.end())
+                if ( Colors != Primitive.attributes.end())
                 {
-                    fastgltf::iterateAccessorWithIndex<FVector4f>(Asset, Asset.accessors[Colors->accessorIndex],
-                        [&](FVector4f Color, size_t Index)
+                    fastgltf::iterateAccessorWithIndex<FVector4f>(Gltf, Gltf.accessors[(*Colors).accessorIndex],
+                        [&](FVector4f v, size_t i)
                         {
-                            Vertices[InitialVertex + Index].Color = Color;
-                        }
-                    );
+                           Vertices[InitialVtx + i].Color = v;
+                        });
                 }
             }
             
-            NewMesh.Surfaces.push_back(NewSurface);
+            if (Primitive.materialIndex.has_value())
+            {
+                NewSurface.Material = Materials[Primitive.materialIndex.value()];
+            }
+            else{
+                NewSurface.Material = Materials[0];
+            }
+            
+            NewMesh->Surfaces.push_back(NewSurface);
         }
         
-        //Display vertex normals
-        if constexpr (OverrideColors)
-        {
-            for (FVertex& vtx : Vertices)
-                vtx.Color = FVector4f{vtx.Normal, 1.f};
-        }
+        NewMesh->MeshBuffers = Engine.UploadMesh(Indices, Vertices);
         
-        NewMesh.MeshBuffers = Engine.UploadMesh(Indices, Vertices);
-        
-        Meshes.emplace_back(MakeShared<FMeshAsset>(MoveTemp(NewMesh)));
     }
-
-    return Meshes;
     
+    // load all nodes and their meshes
+    for (fastgltf::Node& Node :  Gltf.nodes)
+    {
+        TSharedPtr<FNode> NewNode;
+        
+        // find if the node has a mesh, and if it does hook it to the mesh pointer and allocate it with the meshnode class
+        if (Node.meshIndex.has_value())
+        {
+            NewNode = MakeShared<FMeshNode>();
+            static_cast<FMeshNode*>(NewNode.get())->Mesh = Meshes[*Node.meshIndex];
+        } 
+        else
+        {
+            NewNode = MakeShared<FNode>();
+        }
+        
+        Nodes.push_back(NewNode);
+        File.Nodes[Node.name.c_str()];
+        
+        std::visit(fastgltf::visitor {
+            [&](fastgltf::math::fmat4x4 Matrix)
+            {
+                FMemory::Memcpy(&NewNode->LocalTransform, Matrix.data(), sizeof(Matrix));
+            },
+            [&](fastgltf::TRS Transform)
+            {
+                FVector Translation{
+                    Transform.translation[0],
+                    Transform.translation[1],
+                    Transform.translation[2]
+                };
+                FQuat Rotation{
+                    Transform.rotation[3],
+                    Transform.rotation[0],
+                    Transform.rotation[1],
+                    Transform.rotation[2]
+                };
+                FVector Scale{
+                    Transform.scale[0],
+                    Transform.scale[1],
+                    Transform.scale[2]
+                };
+                
+                FMatrix TranslationMatrix   { FTransform::Translate(FMatrix(1.0f), Translation) };
+                FMatrix RotationMatrix      { FTransform::ToMatrix(Rotation) };
+                FMatrix ScaleMatrix         { FTransform::Scale(FMatrix(1.0f), Scale) };
+                
+                NewNode->LocalTransform = TranslationMatrix * RotationMatrix * ScaleMatrix;
+            }
+        }, Node.transform);
+    }
+    
+    //run loop again to setup transform hierarchy
+    for (int32 i = 0; i < Gltf.nodes.size(); ++i)
+    {
+        fastgltf::Node& Node = Gltf.nodes[i];
+        TSharedPtr<FNode>& SceneNode = Nodes[i];
+        
+        for (auto& Child : Node.children)
+        {
+            SceneNode->Children.push_back(Nodes[Child]);
+            Nodes[Child]->Parent = SceneNode; 
+        }
+    }
+    
+    // find the top nodes, with no parents
+    for (auto& Node : Nodes)
+    {
+        if (Node->Parent.lock() == nullptr)
+        {
+            File.TopNodes.push_back(Node);
+            Node->RefreshTransform(FMatrix{1.f});
+        }
+    }
+    
+    return Scene;
+}
+
+TOptional<FAllocatedImage> LoadImage(VulkanEngine& Engine, fastgltf::Asset& Asset, fastgltf::Image& Image)
+{
+    FAllocatedImage NewImage{};
+    
+    int32 Width, Height, nChannels;
+    
+    std::visit(fastgltf::visitor {
+        [](auto& Arg){fmt::println("monostate");},
+            [&](fastgltf::sources::URI& FilePath)
+            {
+                assert(FilePath.fileByteOffset == 0); //we do not support offsets with stbi
+                assert(FilePath.uri.isLocalPath()); // we do not support remote files
+                
+                const FString Path(FilePath.uri.path().begin(), FilePath.uri.path().end());
+                fmt::println("Full uri path is {}", Path);
+                
+                uint8* Data = stbi_load(Path.c_str(), &Width, &Height, &nChannels, 4);
+                if (Data)
+                {
+                    VkExtent3D ImageSize;
+                    ImageSize.width = Width;
+                    ImageSize.height = Height;
+                    ImageSize.depth = 1;
+                    
+                    NewImage = Engine.CreateImage(Data, ImageSize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                    stbi_image_free(Data);
+                }
+            },
+        [&](fastgltf::sources::Vector& Vector)
+        {
+            fmt::println("Getting path from vector");
+            uint8* Data = stbi_load_from_memory((uint8*)Vector.bytes.data(), static_cast<int32>(Vector.bytes.size()), &Width, &Height, &nChannels, 4);
+            if (Data)
+            {
+                VkExtent3D ImageSize;
+                ImageSize.width = Width;
+                ImageSize.height = Height;
+                ImageSize.depth = 1;
+                    
+                NewImage = Engine.CreateImage(Data, ImageSize, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                stbi_image_free(Data);
+            }
+        },
+        [&](fastgltf::sources::BufferView& View)
+        {
+            auto& BufferView = Asset.bufferViews[View.bufferViewIndex];
+            auto& Buffer = Asset.buffers[BufferView.bufferIndex];
+                
+            std::visit(fastgltf::visitor {
+                [](auto& Arg) {
+                    fmt::println("Buffer monostate");
+                },
+                // ✅ Añade este caso para GLB embebidos
+                [&](fastgltf::sources::Array& Array)
+                {
+                    fmt::println("Getting path from buffer array");
+                    uint8* Data = stbi_load_from_memory(
+                        (uint8*)Array.bytes.data() + BufferView.byteOffset,
+                        static_cast<int32>(BufferView.byteLength),
+                        &Width, &Height, &nChannels, 4);
+                    if (Data)
+                    {
+                        VkExtent3D ImageSize;
+                        ImageSize.width = Width;
+                        ImageSize.height = Height;
+                        ImageSize.depth = 1;
+                        NewImage = Engine.CreateImage(Data, ImageSize, 
+                            VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                        stbi_image_free(Data);
+                    }
+                },
+                [&](fastgltf::sources::Vector& Vector)
+                {
+                    fmt::println("Getting path from buffer view");
+                    uint8* Data = stbi_load_from_memory(
+                        (uint8*)Vector.bytes.data() + BufferView.byteOffset,
+                        static_cast<int32>(BufferView.byteLength),
+                        &Width, &Height, &nChannels, 4);
+                    if (Data)
+                    {
+                        VkExtent3D ImageSize;
+                        ImageSize.width = Width;
+                        ImageSize.height = Height;
+                        ImageSize.depth = 1;
+                        NewImage = Engine.CreateImage(Data, ImageSize,
+                            VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                        stbi_image_free(Data);
+                    }
+                }
+            }, Buffer.data);
+        }
+    }, Image.data);
+    
+    // if any of the attempts to load the data failed, we have'nt written the image
+    // so handle is null
+    if (NewImage.Image == VK_NULL_HANDLE)
+        return {};
+    else return NewImage;
 }

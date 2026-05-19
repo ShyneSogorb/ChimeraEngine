@@ -92,15 +92,21 @@ void VulkanEngine::init()
     InitDescriptors();
     
     InitPipelines();
+    
+    InitDefaultData();
+        
+    InitRenderable();
+    
     InitImgUi();
     
     // everything went fine
     bIsInitialized = true;
     
-    InitDefaultData();
     
     MainCamera.Reset();
+
     
+     
     
 }
 
@@ -109,6 +115,8 @@ void VulkanEngine::cleanup()
     if (bIsInitialized) {
 
         vkDeviceWaitIdle(Device);
+        
+        LoadedScenes.clear();
         
         for (int i = 0; i < FRAME_OVERLAP; i++)
         {
@@ -173,6 +181,12 @@ void VulkanEngine::DrawBackground(VkCommandBuffer Cmd)
 void VulkanEngine::DrawGeometry(VkCommandBuffer Cmd)
 {
     
+    //reset counters
+    Stats.DrawcallCount = 0;
+    Stats.TriangleCount = 0;
+    //begin clock
+    auto Start = std::chrono::system_clock::now();
+    
     //begin a render pass  connected to our draw image
     VkRenderingAttachmentInfo ColorAttachment = Vkinit::attachment_info(DrawImage.ImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     VkRenderingAttachmentInfo DepthAttachment = Vkinit::depth_attachment_info(DepthImage.ImageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
@@ -200,9 +214,6 @@ void VulkanEngine::DrawGeometry(VkCommandBuffer Cmd)
     scissor.extent.height = viewport.height;
 
     vkCmdSetScissor(Cmd, 0, 1, &scissor);
-
-    //launch a draw command to draw 3 vertices
-    //vkCmdDraw(Cmd, 3, 1, 0, 0);
     
     //Allocate a new uniform buffer for the scene data
     FAllocatedBuffer GpuSceneDataBuffer = CreateBuffer(sizeof(FGpuSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
@@ -223,8 +234,8 @@ void VulkanEngine::DrawGeometry(VkCommandBuffer Cmd)
     FDescriptorWriter Writer;
     Writer.WriteBuffer(0, GpuSceneDataBuffer.Buffer, sizeof(FGpuSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     Writer.UpdateSet(Device, GlobalDescriptor);
-    
-    for (const FRenderObject& Draw : MainDrawContext.OpaqueSurfaces)
+
+    auto Draw = [&](const FRenderObject& Draw)
     {
         vkCmdBindPipeline(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Draw.MaterialInstance->Pipeline->Pipeline);
         vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Draw.MaterialInstance->Pipeline->Layout, 0, 1, &GlobalDescriptor, 0, nullptr);
@@ -238,14 +249,38 @@ void VulkanEngine::DrawGeometry(VkCommandBuffer Cmd)
         vkCmdPushConstants(Cmd, Draw.MaterialInstance->Pipeline->Layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Push), &Push);
         
         vkCmdDrawIndexed(Cmd, Draw.IndexCount, 1, Draw.FirstIndex, 0, 0);
+        
+        //add counters for triangles and draws
+        Stats.DrawcallCount++;
+        Stats.TriangleCount += Draw.IndexCount / 3;   
+    };
+    
+    for (const FRenderObject& RenderObject : MainDrawContext.OpaqueSurfaces)
+    {
+        Draw(RenderObject);
+    }
+    
+    for (const FRenderObject& RenderObject : MainDrawContext.TransparentSurfaces)
+    {
+        Draw(RenderObject);
     }
 
     vkCmdEndRendering(Cmd);
+    
+    MainDrawContext.OpaqueSurfaces.clear();
+    MainDrawContext.TransparentSurfaces.clear();
+    
+    auto End = std::chrono::system_clock::now();
+        
+    //convert to microseconds (integer), then back to miliseconds
+    auto Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(End - Start);
+    Stats.MeshDrawTime = Elapsed.count() / 1000.f;
+    
 }
 
 void VulkanEngine::UpdateScene()
 {
-    MainDrawContext.OpaqueSurfaces.clear();
+    auto Start = std::chrono::system_clock::now();
     
     MainCamera.Update();
     
@@ -254,7 +289,7 @@ void VulkanEngine::UpdateScene()
     //Camera projection
     FMatrix Projection = FTransform::Perspective(FTransform::Radians(70.f), (float)WindowExtent.width / WindowExtent.height, 10000.f, .1f);
     
-    LoadedNodes["Suzanne"]->Draw(FMatrix{1.f}, MainDrawContext);
+    //LoadedNodes["Suzanne"]->Draw(FMatrix{1.f}, MainDrawContext);
     
     // invert the Y direction on projection matrix so that we are more similar
     // to opengl and gltf axis
@@ -274,8 +309,17 @@ void VulkanEngine::UpdateScene()
         FMatrix Scale = FTransform::Scale(FVector{.2});
         FMatrix Translation = FTransform::Translate(FVector3{i, 1, 0});
         
-        LoadedNodes["Cube"]->Draw(Translation * Scale, MainDrawContext);
+        //LoadedNodes["Cube"]->Draw(Translation * Scale, MainDrawContext);
     }
+    
+    LoadedScenes["Structure"]->Draw(FMatrix{1.f}, MainDrawContext);
+    
+        
+    auto End = std::chrono::system_clock::now();
+        
+    //convert to microseconds (integer), then back to miliseconds
+    auto Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(End - Start);
+    Stats.SceneUpdateTime = Elapsed.count() / 1000.f;
     
 }
 
@@ -412,7 +456,6 @@ void VulkanEngine::Draw()
     
     UpdateScene();
     
-    
     // wait until the gpu has finished rendering the last frame. Timeout
     VK_CHECK(vkWaitForFences(Device, 1, &GetCurrentFrame().RenderFence, true, TIMEOUT));
     VK_CHECK(vkResetFences(Device, 1, &GetCurrentFrame().RenderFence));
@@ -518,13 +561,17 @@ void VulkanEngine::Draw()
 
 }
 
-void VulkanEngine::run()
+void VulkanEngine::Run()
 {
     SDL_Event e;
     bool bQuit = false;
 
     // main loop
     while (!bQuit) {
+        
+        //begin clock
+        auto Start = std::chrono::system_clock::now();
+        
         // Handle events on queue
         while (SDL_PollEvent(&e) != 0) {
             // close the window when user alt-f4s or clicks the X button
@@ -587,10 +634,26 @@ void VulkanEngine::run()
         }
         ImGui::End();
         
+        ImGui::Begin("Stats");
+
+        ImGui::Text("frametime %f ms", Stats.FrameTime);
+        ImGui::Text("draw time %f ms", Stats.MeshDrawTime);
+        ImGui::Text("update time %f ms", Stats.SceneUpdateTime);
+        ImGui::Text("triangles %i", Stats.TriangleCount);
+        ImGui::Text("draws %i", Stats.DrawcallCount);
+        ImGui::End();
+        
         //Make imgui calculate internal draw structures
         ImGui::Render();
 
         Draw();
+        
+        //get clock again, compare with start
+        auto End = std::chrono::system_clock::now();
+        
+        //convert to microseconds (integer), then back to miliseconds
+        auto Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(End - Start);
+        Stats.FrameTime = Elapsed.count() / 1000.f;
     }
 }
 
@@ -885,6 +948,16 @@ void VulkanEngine::InitPipelines()
     InitMeshPipeline();
     
     MetalRoughMat.BuildPipelines(*this);
+}
+
+void VulkanEngine::InitRenderable()
+{
+    FString StructurePath = {"Meshes/Structure.glb"};
+    auto StructureFile = LoadGltfMeshes(*this, StructurePath);
+    
+    assert(StructureFile.has_value());
+    
+    LoadedScenes["Structure"] = *StructureFile;
 }
 
 void VulkanEngine::InitBackgroundPipelines()
@@ -1190,29 +1263,6 @@ void VulkanEngine::InitDefaultData()
     DefaultData = MetalRoughMat.WriteMaterial(Device, EMaterialPass::Opaque, Resources, GlobalDescriptorAllocator);
     
 //<< Default material
-    
-    TestMeshes = vkLoader::LoadGltfMeshes(*this, "Meshes/basicmesh.glb").value();
-    
-//>> default meshes
-    
-    for (auto& Mesh : TestMeshes)
-    {
-        TSharedRef<FMeshNode> NewNode = MakeShared<FMeshNode>();
-        NewNode->Mesh = Mesh;
-        
-        NewNode->LocalTransform = FMatrix{1.f};
-        NewNode->WorldTransform = FMatrix{1.f};
-        
-        for (auto& Surface : NewNode->Mesh->Surfaces)
-        {
-            Surface.Material = MakeShared<FGltfMaterial>(DefaultData);
-        }
-        
-        LoadedNodes[Mesh->Name] = MoveTemp(NewNode);
-    }
-    
-//<< default meshes
-    
 }
 
 void VulkanEngine::InitDescriptors()
@@ -1233,7 +1283,6 @@ void VulkanEngine::InitDescriptors()
     
     //allocate a descriptor set for our draw image
     DrawImageDescriptors = GlobalDescriptorAllocator.Allocate(Device, DrawImageDescLayout);
-    
     FDescriptorWriter Writer;
     Writer.WriteImage(0, DrawImage.ImageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
     
@@ -1332,12 +1381,6 @@ void VulkanEngine::InitVulkan()
     AllocatorInfo.instance = Instance;
     AllocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
     vmaCreateAllocator(&AllocatorInfo, &Allocator);
-    
-    MainDeletionQueue.PushFunction([=, this]()
-    {
-        vmaDestroyAllocator(Allocator);
-    });
-    
 }
 
 void VulkanEngine::InitSwapchain()

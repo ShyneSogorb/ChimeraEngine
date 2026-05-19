@@ -39,6 +39,9 @@ using TExpected = std::expected<T, ErrorType>;
 template <typename T>
 using TFunction = std::function<T>;
 
+template <typename T>
+using TArrayShared = TArray<TSharedPtr<T>>;
+
 using FColor = FVector4;
 namespace FLinearColor
 {

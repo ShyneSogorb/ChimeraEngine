@@ -8,7 +8,7 @@ layout (location = 1) in vec2 inUV;
 layout (location = 0) out vec4 FragColor;
 
 //texture to access
-layout (binding = 0) uniform sampler2D DisplayTexture;
+layout (set = 0, binding = 0) uniform sampler2D DisplayTexture;
 
 void main()
 {

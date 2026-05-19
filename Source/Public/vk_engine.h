@@ -47,6 +47,15 @@ struct FComputeEffect
 	FComputePushConstants Data{};
 };
 
+struct FEngineStats
+{
+	float FrameTime;
+	int32 TriangleCount;
+	int32 DrawcallCount;
+	float SceneUpdateTime;
+	float MeshDrawTime;
+};
+
 struct FGltfMetalicRoughness
 {
 	FMaterialPipeline OpaquePipeline;
@@ -105,7 +114,7 @@ public:
 	void Draw();
 
 	//run main loop
-	void run();
+	void Run();
 	
 	// --- omitted ---
 	
@@ -191,11 +200,30 @@ public:
 	FAllocatedImage CreateImage(void* Data, VkExtent3D Size, VkFormat Format, VkImageUsageFlags Usage, bool bMipmapped = false);
 	void DestroyImage(const FAllocatedImage& Img);
 	
+	FAllocatedImage ErrorCheckerboardImage{ nullptr };
+	FAllocatedImage WhiteImage{ nullptr };
+	FAllocatedImage BlackImage{ nullptr };
+	FAllocatedImage GreyImage{ nullptr };
+
+	VkSampler DefaultSamplerLinear;
+	VkSampler DefaultSamplerNearest;
+	
+	VkDescriptorSetLayout SingleImageDescriptorLayout{ nullptr };
+	
+	FMaterialInstance DefaultData;
+	FGltfMetalicRoughness MetalRoughMat;
+	
+	FDrawContext MainDrawContext;
+	TMap<FString, TSharedPtr<struct FLoadedGltf>> LoadedScenes;
+	
+	FEngineStats Stats;
+	
 private:
 	
 	void ResizeSwapChain();
 	void InitImgUi();
 	void InitPipelines();
+	void InitRenderable();
 	void InitBackgroundPipelines();
 	void InitTrianglePipeline();
 	void InitMeshPipeline();
@@ -214,24 +242,13 @@ private:
 	void DrawBackground(VkCommandBuffer Cmd);
 	void DrawGeometry(VkCommandBuffer Cmd);
 	
-	FAllocatedImage WhiteImage{ nullptr };
-	FAllocatedImage BlackImage{ nullptr };
-	FAllocatedImage GreyImage{ nullptr };
-	FAllocatedImage ErrorCheckerboardImage{ nullptr };
+
 	
-	VkSampler DefaultSamplerLinear;
-	VkSampler DefaultSamplerNearest;
-	VkDescriptorSetLayout SingleImageDescriptorLayout{ nullptr };
-	
-	FMaterialInstance DefaultData;
-	FGltfMetalicRoughness MetalRoughMat;
-	
-	FDrawContext MainDrawContext;
+
+
 	TMap<FString, TSharedPtr<FNode>> LoadedNodes;
 	
 	void UpdateScene();
-	
-	TArray<TSharedPtr<FMeshAsset>> TestMeshes;
 	
 	FCamera MainCamera;
 	

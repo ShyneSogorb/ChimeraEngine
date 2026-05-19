@@ -30,7 +30,6 @@ private:
     VkDescriptorPool GetPool(VkDevice Device);
     VkDescriptorPool CreatePool(VkDevice Device, uint32 SetCount, TArrayView<FPoolSizeRation> PoolRatios);
 
-
     TArray<FPoolSizeRation> Ratios;
     TArray<VkDescriptorPool> FullPools;
     TArray<VkDescriptorPool> ReadyPools;

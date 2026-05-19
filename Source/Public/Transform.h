@@ -57,4 +57,9 @@ struct FTransform
         return glm::scale(v);
     }
     
+    static FMatrix Scale(FMatrix m, FVector const& v)
+    {
+        return glm::scale(m, v);
+    }
+    
 };

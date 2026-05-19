@@ -5,6 +5,7 @@
 #include <filesystem>
 
 #include "vk_descriptors.h"
+#include "fastgltf/dxmath_element_traits.hpp"
 
 using FPath = std::filesystem::path;
 
@@ -31,12 +32,7 @@ struct FMeshAsset
 //forward declaration
 class VulkanEngine;
 
-namespace vkLoader
-{
-    TOptional<TArray<TSharedPtr<FMeshAsset>>> LoadGltfMeshes(VulkanEngine& Engine, FPath FilePath);
-}
-
-struct FLoaderGltf : public IRenderable
+struct FLoadedGltf : public IRenderable
 {
     //storage fpr all the data on a gives gltf file
     TMap<FString, TSharedPtr<FMeshAsset>> Meshes;
@@ -55,7 +51,7 @@ struct FLoaderGltf : public IRenderable
     
     VulkanEngine* Creator;
     
-    ~FLoaderGltf() { ClearAll(); };
+    ~FLoadedGltf() { ClearAll(); };
     
     virtual void Draw(const FMatrix& TopMatrix, FDrawContext& ctx) override;
     
@@ -64,3 +60,9 @@ private:
     void ClearAll();
     
 };
+
+using FOptionalGltfData = TOptional<TSharedPtr<FLoadedGltf>>; 
+
+FOptionalGltfData LoadGltfMeshes(VulkanEngine& Engine, FPath FilePath);
+
+TOptional<FAllocatedImage> LoadImage(VulkanEngine& Engine, fastgltf::Asset& Asset, fastgltf::Image& Image);
