@@ -1,72 +1,21 @@
 ﻿cmake_minimum_required(VERSION 3.5)
+
 project(ChimeraEngine CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# ─── FetchContent global ────────────────────────────────────────────────────
-include(FetchContent)
+find_package(sdl2           CONFIG REQUIRED)
+find_package(glm            CONFIG REQUIRED)
+find_package(vk-bootstrap    CONFIG REQUIRED)
+find_package(VulkanMemoryAllocator            CONFIG REQUIRED)
+find_package(fastgltf       CONFIG REQUIRED)
+find_package(fmt            CONFIG REQUIRED)
+find_package(EASTL          CONFIG REQUIRED)
+find_package(imgui          CONFIG REQUIRED)
+find_path(STB_INCLUDE_DIRS "stb_image.h")
 
-FetchContent_Declare(sdl2
-        GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-        GIT_TAG        release-2.30.9
-)
-FetchContent_Declare(
-        glm
-        GIT_REPOSITORY https://github.com/g-truc/glm.git
-        GIT_TAG        1.0.1
-)
-FetchContent_Declare(vkbootstrap
-        GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap.git
-        GIT_TAG        v1.3.295
-)
-FetchContent_Declare(vma
-        GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
-        GIT_TAG        v3.1.0
-)
-FetchContent_Declare(imgui
-        GIT_REPOSITORY https://github.com/ocornut/imgui.git
-        GIT_TAG        v1.91.6
-)
-FetchContent_Declare(stbimage
-        GIT_REPOSITORY https://github.com/nothings/stb.git
-        GIT_TAG        master
-)
-FetchContent_Declare(fastgltf
-        GIT_REPOSITORY https://github.com/spnda/fastgltf.git
-        GIT_TAG        v0.8.0
-)
-FetchContent_Declare(fmt
-        GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-        GIT_TAG        11.0.2
-)
-FetchContent_Declare(EASTL
-        GIT_REPOSITORY https://github.com/electronicarts/EASTL.git
-        GIT_TAG        master
-)
-
-FetchContent_MakeAvailable(sdl2 glm vkbootstrap vma stbimage fastgltf fmt imgui EASTL)
-
-# ImGui como librería reutilizable desde aquí
-add_library(imgui_lib STATIC
-        ${imgui_SOURCE_DIR}/imgui.cpp
-        ${imgui_SOURCE_DIR}/imgui_draw.cpp
-        ${imgui_SOURCE_DIR}/imgui_tables.cpp
-        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-        ${imgui_SOURCE_DIR}/imgui_demo.cpp
-        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
-        ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
-)
-target_include_directories(imgui_lib PUBLIC
-        ${imgui_SOURCE_DIR}
-        ${imgui_SOURCE_DIR}/backends
-        ${stbimage_SOURCE_DIR}
-)
-target_link_libraries(imgui_lib PUBLIC
-        Vulkan::Vulkan
-        SDL2::SDL2
-)
 
 # ─── Vulkan ─────────────────────────────────────────────────────────────────
 find_package(Vulkan REQUIRED)

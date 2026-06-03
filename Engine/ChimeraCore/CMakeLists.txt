@@ -12,7 +12,7 @@ target_include_directories(ChimeraCore PUBLIC Source/Public/)
 target_link_libraries(ChimeraCore PUBLIC
         glm::glm
         fmt::fmt
-        EASTL::EASTL
+        EASTL
 )
 
 # Cambiamos add_compile_definitions por target_compile_definitions con PUBLIC
