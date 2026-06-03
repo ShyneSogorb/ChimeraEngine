@@ -1,82 +1,55 @@
-cmake_minimum_required(VERSION 3.20)
-project(ChimeraEngine)
+﻿cmake_minimum_required(VERSION 3.5)
+project(ChimeraEngine CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# ─── Vulkan (requiere Vulkan SDK instalado en el sistema) ───────────────────
-find_package(Vulkan REQUIRED)
-
-# ─── Dependencias via FetchContent ──────────────────────────────────────────
+# ─── FetchContent global ────────────────────────────────────────────────────
 include(FetchContent)
 
-FetchContent_Declare(
-        sdl2
+FetchContent_Declare(sdl2
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
         GIT_TAG        release-2.30.9
 )
-
 FetchContent_Declare(
         glm
         GIT_REPOSITORY https://github.com/g-truc/glm.git
         GIT_TAG        1.0.1
 )
-
-FetchContent_Declare(
-        vkbootstrap
+FetchContent_Declare(vkbootstrap
         GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap.git
         GIT_TAG        v1.3.295
 )
-
-FetchContent_Declare(
-        vma
+FetchContent_Declare(vma
         GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
         GIT_TAG        v3.1.0
 )
-
-FetchContent_Declare(
-        imgui
+FetchContent_Declare(imgui
         GIT_REPOSITORY https://github.com/ocornut/imgui.git
         GIT_TAG        v1.91.6
 )
-
-FetchContent_Declare(
-        stbimage
+FetchContent_Declare(stbimage
         GIT_REPOSITORY https://github.com/nothings/stb.git
         GIT_TAG        master
 )
-
-FetchContent_Declare(
-        fastgltf
+FetchContent_Declare(fastgltf
         GIT_REPOSITORY https://github.com/spnda/fastgltf.git
         GIT_TAG        v0.8.0
 )
-
-FetchContent_Declare(
-        fmt
+FetchContent_Declare(fmt
         GIT_REPOSITORY https://github.com/fmtlib/fmt.git
         GIT_TAG        11.0.2
 )
-
-FETCHCONTENT_Declare(
-        DXC
-        GIT_REPOSITORY https://github.com/microsoft/DirectXShaderCompiler
-        GIT_TAG         v1.9.2602
+FetchContent_Declare(EASTL
+        GIT_REPOSITORY https://github.com/electronicarts/EASTL.git
+        GIT_TAG        master
 )
 
-FetchContent_MakeAvailable(sdl2 glm vkbootstrap vma stbimage fastgltf fmt)
+FetchContent_MakeAvailable(sdl2 glm vkbootstrap vma stbimage fastgltf fmt imgui EASTL)
 
-# ImGui no tiene CMakeLists propio util, se compila manual
-FetchContent_MakeAvailable(imgui)
-
-# ─── Sources ────────────────────────────────────────────────────────────────
-file(GLOB_RECURSE SOURCES
-        "Source/*.cpp"
-        "Source/*.h"
-)
-
-# ImGui sources — los archivos que realmente necesitamos
-set(IMGUI_SOURCES
+# ImGui como librería reutilizable desde aquí
+add_library(imgui_lib STATIC
         ${imgui_SOURCE_DIR}/imgui.cpp
         ${imgui_SOURCE_DIR}/imgui_draw.cpp
         ${imgui_SOURCE_DIR}/imgui_tables.cpp
@@ -85,62 +58,60 @@ set(IMGUI_SOURCES
         ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
         ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
 )
-
-# ─── Ejecutable ─────────────────────────────────────────────────────────────
-add_executable(ChimeraEngine
-        ${SOURCES}
-        ${IMGUI_SOURCES}
-)
-
-target_include_directories(ChimeraEngine PRIVATE
-        Source/Public
+target_include_directories(imgui_lib PUBLIC
         ${imgui_SOURCE_DIR}
         ${imgui_SOURCE_DIR}/backends
         ${stbimage_SOURCE_DIR}
 )
-
-target_compile_definitions(ChimeraEngine PUBLIC
-        GLM_FORCE_DEPTH_ZERO_TO_ONE
-)
-
-target_precompile_headers(ChimeraEngine PUBLIC
-        <optional> <vector> <memory> <string>
-        <unordered_map>
-        <glm/mat4x4.hpp> <glm/vec4.hpp>
-        <vulkan/vulkan.h>
-)
-
-target_link_libraries(ChimeraEngine PRIVATE
+target_link_libraries(imgui_lib PUBLIC
         Vulkan::Vulkan
         SDL2::SDL2
-        glm::glm
-        vk-bootstrap::vk-bootstrap
-        GPUOpen::VulkanMemoryAllocator
-        fastgltf::fastgltf
-        fmt::fmt
 )
 
-# ─── Compilación automática de shaders ──────────────────────────────────────
+# ─── Vulkan ─────────────────────────────────────────────────────────────────
+find_package(Vulkan REQUIRED)
+
+# ─── Definiciones globales ───────────────────────────────────────────────────
+add_compile_definitions(
+        GLM_FORCE_DEPTH_ZERO_TO_ONE
+        GLM_ENABLE_EXPERIMENTAL
+)
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR NOT CMAKE_BUILD_TYPE)
+    add_compile_definitions(RESOURCES_PATH="${CMAKE_SOURCE_DIR}/Resources/")
+    add_compile_definitions(SHADER_PATH="${CMAKE_SOURCE_DIR}/Shaders/Compiled/")
+else()
+    add_compile_definitions(RESOURCES_PATH="Resources/")
+    add_compile_definitions(SHADER_PATH="Shaders/Compiled/")
+endif()
+
+# ─── Módulos ─────────────────────────────────────────────────────────────────
+add_subdirectory(Engine/ChimeraCore)
+add_subdirectory(Engine/VulkanRenderer)
+#add_subdirectory(Engine/Physics)
+#add_subdirectory(Engine/Audio)
+add_subdirectory(Game/Main)
+add_subdirectory(Game/Launch)
+
+# ─── Shaders ─────────────────────────────────────────────────────────────────
 find_program(GLSL_VALIDATOR glslangValidator
         HINTS /usr/bin /usr/local/bin $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/
 )
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES
-        "${PROJECT_SOURCE_DIR}/Shaders/*.frag"
-        "${PROJECT_SOURCE_DIR}/Shaders/*.vert"
-        "${PROJECT_SOURCE_DIR}/Shaders/*.comp"
+        "Shaders/*.frag"
+        "Shaders/*.vert"
+        "Shaders/*.comp"
 )
 
 foreach(GLSL ${GLSL_SOURCE_FILES})
     get_filename_component(FILE_NAME ${GLSL} NAME)
-    set(SPIRV "${PROJECT_SOURCE_DIR}/Shaders/Compiled/${FILE_NAME}.spv")
-    
-    #ignore include directories
-    if (GLSL MATCHES ".*((\.inc)|(\.glsl))$")
+    set(SPIRV "Shaders/Compiled/${FILE_NAME}.spv")
+
+    if(GLSL MATCHES ".*((\.inc)|(\.glsl))$")
         continue()
     endif()
 
-    # Strip UTF-8 BOM if present before compiling
     set(GLSL_STRIPPED "${CMAKE_BINARY_DIR}/ShaderStripped/${FILE_NAME}")
     add_custom_command(
             OUTPUT ${GLSL_STRIPPED}
@@ -149,44 +120,15 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
             "import sys; d=open('${GLSL}','rb').read(); open('${GLSL_STRIPPED}','wb').write(d[3:] if d[:3]==b'\\xef\\xbb\\xbf' else d)"
             DEPENDS ${GLSL}
     )
-    
+
     add_custom_command(
             OUTPUT ${SPIRV}
             COMMAND ${GLSL_VALIDATOR} -V ${GLSL} -o ${SPIRV}
             DEPENDS ${GLSL}
     )
-    
-    message(STATUS "Shader: ${GLSL} -> ${SPIRV}")
+
     list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach()
 
+
 add_custom_target(Shaders DEPENDS ${SPIRV_BINARY_FILES})
-add_dependencies(ChimeraEngine Shaders)
-
-# ─── Resources ──────────────────────────────────────────────────────────────
-target_compile_definitions(ChimeraEngine PUBLIC
-        $<$<CONFIG:Debug>:RESOURCES_PATH="${CMAKE_SOURCE_DIR}/Resources/">
-        $<$<CONFIG:Release>:RESOURCES_PATH="Resources/">
-        $<$<CONFIG:Debug>:SHADER_PATH="${CMAKE_SOURCE_DIR}/Shaders/compiled/">
-        $<$<CONFIG:Release>:SHADER_PATH="Shaders/compiled/">
-)
-
-add_custom_command(TARGET ChimeraEngine POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E $<IF:$<CONFIG:Release>,copy_directory,true>
-        ${CMAKE_SOURCE_DIR}/Resources
-        $<TARGET_FILE_DIR:ChimeraEngine>/Resources
-)
-
-# ─── Definitions ────────────────────────────────────────────────────────────
-
-add_compile_definitions(
-        GLM_ENABLE_EXPERIMENTAL
-)
-
-# ─── DLLs en Windows ────────────────────────────────────────────────────────
-if(WIN32)
-    add_custom_command(TARGET ChimeraEngine POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:ChimeraEngine> $<TARGET_FILE_DIR:ChimeraEngine>
-            COMMAND_EXPAND_LISTS
-    )
-endif()
