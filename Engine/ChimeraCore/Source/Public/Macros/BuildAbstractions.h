@@ -10,6 +10,7 @@
 #ifdef SHIPPING_BUILD
 
     #define FORCEINLINE_DEBUG FORCEINLINE
+    #define EASTL_ASSERT_ENABLED
 
 #else
 

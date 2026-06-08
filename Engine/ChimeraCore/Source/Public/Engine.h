@@ -6,9 +6,13 @@
 #include <vector>
 
 #include "Containers/Array.h"
+#include "Containers/Stack.h"
 #include "Interfaces/IModuleInterface.h"
 #include "Interfaces/IRenderer.h"
 #include "SmartPointers/UniquePtr.h"
+
+template <typename T>
+concept ModuleInterface = std::is_base_of_v<IModuleInterface, T>;
 
 class FEngine
 {
@@ -16,13 +20,13 @@ public:
     
     static FEngine& Get();
     
-    template <typename Module>
+    template <ModuleInterface Module>
     void RegisterModule()
     {
-        Modules.Emplace(std::make_unique<Module>()); 
+        Modules.Emplace(MakeUnique<Module>()); 
     }
 
-    template <typename Module>
+    template <ModuleInterface Module>
     Module& GetModule(this FEngine& Core)
     {
         for (const auto& ModulePtr : Core.Modules)
@@ -40,6 +44,6 @@ public:
     
 private:
     
-    TArray<TUniquePtr<IModuleInterface>> Modules;
+    TStack<TUniquePtr<IModuleInterface>> Modules;
     
 };

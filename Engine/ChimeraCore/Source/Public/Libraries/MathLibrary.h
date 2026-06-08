@@ -29,9 +29,10 @@ using FMatrix = FMatrix4;
 
 namespace FMath
 {
-    constexpr auto Min(auto... Values)
+    template <typename T, typename ...U>
+    constexpr T Min(U... Values)
     {
-        return std::min({Values...});
+        return (T)std::min({Values...});
     }
     
     constexpr auto Max(auto... Values)
@@ -54,31 +55,31 @@ namespace FMath
     template <typename T>
     constexpr T Sin(T Value)
     {
-        return std::sin(Value);
+        return (T)std::sin((double)Value);
     }
     
     template <typename T>
     constexpr T Cos(T Value)
     {
-        return std::cos(Value);
+        return (T)std::cos((double)Value);
     }
     
     template <typename T>
     constexpr T Floor(T Value)
     {
-        return std::floor(Value);
+        return (T)std::floor((double)Value);
     }
     
     template <typename T, typename U>
     constexpr T FloorToInt(U Value)
     {
-        return std::floor(Value);
+        return (T)std::floor((double)Value);
     }
     
     template <typename T>
     constexpr T Ceil(T Value)
     {        
-        return std::ceil(Value);
+        return (T)std::ceil(Value);
     }
     
     template <typename T, typename U>
@@ -90,7 +91,7 @@ namespace FMath
     template <typename T>
     constexpr T Log2(T Value)
     {
-        return std::log2(Value);
+        return (T)std::log2(static_cast<double>(Value));
     }
     
 }

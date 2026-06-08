@@ -16,5 +16,5 @@ void MMainModule::ModuleStartup()
 
 void MMainModule::ModuleShutdown()
 {
-    
+    FEngine::Get().ShutdownModules();
 }

@@ -1,18 +1,18 @@
 ﻿
 #pragma once
 
-#include "Interfaces/IModuleInterface.h"
-#include "Interfaces/IRenderer.h"
+#include "Interfaces/IRenderModuleInterface.h"
+#include "Macros/CompilerAbstractions.h"
 #include "SmartPointers/UniquePtr.h"
 
 
-struct MVulkanRenderer : public IModuleInterface
+struct MVulkanRenderer : public IRenderModuleInterface
 {
     
     void ModuleStartup() override;
     void ModuleShutdown() override;
     
-    [[nodiscard]] IRenderer& GetRenderer() const {return *Renderer;}
+    NO_DISCARD IRenderer& GetRenderer() const override {return *Renderer;}
     
 private:
     

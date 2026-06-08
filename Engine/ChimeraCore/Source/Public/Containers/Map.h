@@ -1,27 +1,37 @@
 ﻿
 #pragma once
-#include <unordered_map>
 #include <EASTL/unordered_map.h>
+#include "Containers/ContainersHelper.h"
 
 
 template <typename KeyType, typename ValueType> 
 struct TMap
 {
-    TMap() = default;
+    
+    using ThisType = TMap<KeyType, ValueType>;
+    using ElementType = eastl::pair<KeyType, ValueType>;
+    
+private:
+    
+    eastl::unordered_map<KeyType, ValueType> Container;
+    
+public:
+    
+    DECLARE_CONTAINER_CONSTRUCTORS(TMap)
+    
+    DECLARE_ITERATOR()
     
     template <typename... Args>
     void Emplace(Args&&... Arguments)
     {
-        Map.emplace(std::forward<Args>(Arguments)...);
+        Container.emplace(std::forward<Args>(Arguments)...);
     }
     
-    ValueType& operator[](const KeyType& Key) { return Map[Key]; }
+    ValueType& operator[](const KeyType& Key) { return Container[Key]; }
     
-    const ValueType& operator[](const KeyType& Key) const { return Map.at(Key); }
+    auto Num() const { return Container.size(); }
     
-    size_t Num() const { return Map.size(); }
+    void Clear() { Container.clear(); }
     
-private:
-    
-    eastl::unordered_map<KeyType, ValueType> Map;
+
 };

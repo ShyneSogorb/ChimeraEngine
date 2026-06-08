@@ -17,17 +17,17 @@
 namespace FMemory
 {
 
-    NO_DISCARD FORCEINLINE void* Memmove(void* Dst, void const* Src, size_t Size)
+    FORCEINLINE void* Memmove(void* Dst, void const* Src, size_t Size)
     {
         return memmove(Dst, Src, Size);
     }
     
-    NO_DISCARD FORCEINLINE void* Memset(void* Dst, int Value, size_t Size)
+    FORCEINLINE void* Memset(void* Dst, int Value, size_t Size)
     {
         return memset(Dst, Value, Size);
     }
     
-    NO_DISCARD FORCEINLINE void* Memzero(void* Dst, size_t Size)
+    FORCEINLINE void* Memzero(void* Dst, size_t Size)
     {
         return memset(Dst, 0, Size);
     }
@@ -94,9 +94,7 @@ namespace FMemory
 template <typename T>
 constexpr std::remove_reference_t<T>&& MoveTemp(T&& Obj) noexcept
 {
-    static_assert(!std::is_lvalue_reference_v<T>, "MoveTemp does not support lvalues");
+    static_assert(!std::is_const_v<std::remove_reference_t<T>>, "MoveTemp cannot be used on const objects");
     
-    using BaseType = std::remove_reference_t<T>;
-    
-    return static_cast<BaseType&&>(Obj);
+    return eastl::move(Obj);
 }

@@ -1,5 +1,10 @@
 ﻿cmake_minimum_required(VERSION 3.5)
 
+set(CMAKE_TOOLCHAIN_FILE
+        "${CMAKE_SOURCE_DIR}/Submodules/vcpkg/scripts/buildsystems/vcpkg.cmake"
+        CACHE STRING ""
+)
+
 project(ChimeraEngine CXX)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -8,7 +13,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(sdl2           CONFIG REQUIRED)
 find_package(glm            CONFIG REQUIRED)
-find_package(vk-bootstrap    CONFIG REQUIRED)
+find_package(Vulkan         REQUIRED)
+find_package(VulkanHeaders  CONFIG REQUIRED)
+find_package(vk-bootstrap   CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator            CONFIG REQUIRED)
 find_package(fastgltf       CONFIG REQUIRED)
 find_package(fmt            CONFIG REQUIRED)
@@ -26,21 +33,22 @@ add_compile_definitions(
         GLM_ENABLE_EXPERIMENTAL
 )
 
-if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR NOT CMAKE_BUILD_TYPE)
+#if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR NOT CMAKE_BUILD_TYPE)
     add_compile_definitions(RESOURCES_PATH="${CMAKE_SOURCE_DIR}/Resources/")
     add_compile_definitions(SHADER_PATH="${CMAKE_SOURCE_DIR}/Shaders/Compiled/")
-else()
-    add_compile_definitions(RESOURCES_PATH="Resources/")
-    add_compile_definitions(SHADER_PATH="Shaders/Compiled/")
-endif()
+#else()
+#    add_compile_definitions(RESOURCES_PATH="Resources/")
+#    add_compile_definitions(SHADER_PATH="Shaders/Compiled/")
+#endif()
 
 # ─── Módulos ─────────────────────────────────────────────────────────────────
-add_subdirectory(Engine/ChimeraCore)
+add_subdirectory(Engine/ChimeraCore)    # Engine core, always first
 add_subdirectory(Engine/VulkanRenderer)
 #add_subdirectory(Engine/Physics)
 #add_subdirectory(Engine/Audio)
 add_subdirectory(Game/Main)
-add_subdirectory(Game/Launch)
+
+add_subdirectory(Game/Launch)           # Executable, always last
 
 # ─── Shaders ─────────────────────────────────────────────────────────────────
 find_program(GLSL_VALIDATOR glslangValidator
@@ -55,25 +63,28 @@ file(GLOB_RECURSE GLSL_SOURCE_FILES
 
 foreach(GLSL ${GLSL_SOURCE_FILES})
     get_filename_component(FILE_NAME ${GLSL} NAME)
-    set(SPIRV "Shaders/Compiled/${FILE_NAME}.spv")
-
+    
     if(GLSL MATCHES ".*((\.inc)|(\.glsl))$")
+        message(WARNING "Skipping shader file ${GLSL} because it has an extension that indicates it's not meant to be compiled.")
         continue()
     endif()
 
+    set(SPIRV "${CMAKE_SOURCE_DIR}/Shaders/Compiled/${FILE_NAME}.spv")
     set(GLSL_STRIPPED "${CMAKE_BINARY_DIR}/ShaderStripped/${FILE_NAME}")
+
+    message(STATUS "Processing shader: ${GLSL} -> ${SPIRV} (stripped: ${GLSL_STRIPPED})")
     add_custom_command(
             OUTPUT ${GLSL_STRIPPED}
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/ShaderStripped"
-            COMMAND python3 -c
-            "import sys; d=open('${GLSL}','rb').read(); open('${GLSL_STRIPPED}','wb').write(d[3:] if d[:3]==b'\\xef\\xbb\\xbf' else d)"
+            COMMAND py -c "import sys; d=open('${GLSL}','rb').read(); open('${GLSL_STRIPPED}','wb').write(d[3:] if d[:3]==b'\\xef\\xbb\\xbf' else d)"
             DEPENDS ${GLSL}
     )
 
     add_custom_command(
             OUTPUT ${SPIRV}
-            COMMAND ${GLSL_VALIDATOR} -V ${GLSL} -o ${SPIRV}
-            DEPENDS ${GLSL}
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/Shaders/Compiled"
+            COMMAND ${GLSL_VALIDATOR} -V ${GLSL_STRIPPED} -o ${SPIRV} -I"${CMAKE_SOURCE_DIR}/Shaders"
+            DEPENDS ${GLSL_STRIPPED}
     )
 
     list(APPEND SPIRV_BINARY_FILES ${SPIRV})

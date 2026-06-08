@@ -21,6 +21,7 @@
 
 #include "Containers/Function.h"
 #include "Interfaces/IRenderer.h"
+#include "Interfaces/IRenderModuleInterface.h"
 
 
 struct FMeshAsset;
@@ -37,7 +38,7 @@ struct FDeletionQueue
 {
 	void PushFunction(TFunction<void()>&& Function)
 	{
-		Deletors.push_back(Function);
+		Deletors.Emplace(FWD(Function));
 	}
 	
 	void Flush()
@@ -47,7 +48,7 @@ struct FDeletionQueue
 			(*It)();
 		}
 		
-		Deletors.clear();
+		Deletors.Clear();
 	}
 	
 private:
@@ -263,7 +264,7 @@ public:
 	TArray<FComputeEffect> BackgroundEffects{};
 	int CurrentBackgroundEffect { 0 };
 	
-	void ImmediateSubmit(std::function<void(VkCommandBuffer Cmd)>&& Function);
+	void ImmediateSubmit(TFunction<void(VkCommandBuffer Cmd)>&& Function);
 	
 	void DrawImGui(VkCommandBuffer Cmd, VkImageView TargetImageView);
 	

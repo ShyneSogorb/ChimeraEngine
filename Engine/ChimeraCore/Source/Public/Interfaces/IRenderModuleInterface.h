@@ -1,10 +1,21 @@
-﻿#pragma once
+﻿
+#pragma once
+#include "IModuleInterface.h"
+#include "Macros/CompilerAbstractions.h"
 
-#include <memory>
-#include "Types/RenderTypes.h"
 
-// Forward declarations — no incluimos nada pesado
-struct SDL_Window;
+
+struct IRenderModuleInterface : public IModuleInterface
+{
+    
+    virtual void ModuleStartup(){};
+    virtual void ModuleShutdown(){};
+    
+    NO_DISCARD virtual class IRenderer& GetRenderer() const = 0;
+    
+    virtual ~IRenderModuleInterface() = default;
+    
+};
 
 class IRenderer
 {

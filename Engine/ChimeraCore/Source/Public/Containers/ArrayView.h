@@ -1,44 +1,37 @@
 ﻿
 #pragma once
 
-#include <span>
-#include "Array.h"
-
+#include <EASTL/span.h>
+#include "Containers/Array.h"
 
 template <typename InElementType> 
 struct TArrayView
 {
     using ElementType = InElementType;
-    
+
     TArrayView() = default;
+    TArrayView(ElementType* InData, size_t InSize) : Span(InData, InSize) {}
+    TArrayView(const TArrayView& Other) : Span(Other.Span) {}
+    TArrayView(const TArray<ElementType>& Array) : Span(Array.GetData(), Array.Num()) {}
+    TArrayView(TArray<ElementType>& Array) : Span(Array.GetData(), Array.Num()) {}
     
-    TArrayView(ElementType* InData, size_t InSize) : Data(InData), Size(InSize) {}
+    TArrayView(std::initializer_list<ElementType> List) : Span(List) {}
     
-    TArrayView(std::span<ElementType> Span) : Data(Span.data()), Size(Span.size()) {}
+    ElementType& operator[](size_t Index) { return Span[Index]; }
     
-    template <typename RangeType>
-    TArrayView(RangeType&& Range) : Data(Range.GetData()), Size(Range.Num()) {}
+    const ElementType& operator[](size_t Index) const { return Span[Index]; }
     
-    ElementType& operator[](size_t Index) { return Data[Index]; }
+    auto Num() const { return Span.size(); }
+    auto GetSize() const { return Num(); }
     
-    const ElementType& operator[](size_t Index) const { return Data[Index]; }
+    decltype(auto) begin(this auto&& Self) { return FWD(Self).Span.begin(); }
+    decltype(auto) end(this auto&& Self) { return FWD(Self).Span.end(); }
     
-    size_t Num() const { return Size; }
-    size_t GetSize() const { return Size; }
-    
-    auto begin() const { return TArray<ElementType>::template TConstIterator<ElementType>(Data); }
-    auto end() const { return TArray<ElementType>::template TConstIterator<ElementType>(Data + Size); }
-    
-    auto begin() { return TArray<ElementType>::template TIterator<ElementType>(Data); }
-    auto end() { return TArray<ElementType>::template TIterator<ElementType>(Data + Size); }
-    
-    ElementType* GetData() { return Data; }
-    const ElementType* GetData() const { return Data; }
+    decltype(auto) GetData(this auto&& Self) { return FWD(Self).Span.data(); }
     
 private:
     
-    ElementType* Data{ nullptr };
-    size_t Size{ 0 };
+    eastl::span<ElementType> Span;
     
 }; 
 

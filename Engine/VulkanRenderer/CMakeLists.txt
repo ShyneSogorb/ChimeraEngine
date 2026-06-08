@@ -12,10 +12,10 @@ target_link_libraries(VulkanRenderer
         PUBLIC  ChimeraCore
         PRIVATE Vulkan::Vulkan
         PRIVATE SDL2::SDL2
+        PRIVATE Vulkan::Headers
         PRIVATE vk-bootstrap::vk-bootstrap
         PRIVATE GPUOpen::VulkanMemoryAllocator
         PRIVATE fastgltf::fastgltf
-        PRIVATE imgui_lib
 )
 
 #target_precompile_headers(VulkanRenderer PRIVATE

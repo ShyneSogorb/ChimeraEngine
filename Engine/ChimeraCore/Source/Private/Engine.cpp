@@ -2,6 +2,7 @@
 #include "Engine.h"
 
 #include <cassert>
+#include <ranges>
 
 FEngine& FEngine::Get()
 {
@@ -11,7 +12,7 @@ FEngine& FEngine::Get()
 
 void FEngine::StartupModules()
 {
-    for (auto& Module : Modules)
+    for (auto& Module : Modules.Reverse())
     {
         Module->ModuleStartup();
     }

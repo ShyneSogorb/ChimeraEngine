@@ -53,7 +53,7 @@ void FDescriptorAllocator::Init(VkDevice Device, uint32_t MaxSets, TArrayView<FP
     
     VkDescriptorPool NewPool = CreatePool(Device, MaxSets, PoolRatios);
     
-    SetsPerPool = FMath::Min<uint32>(MaxSets * 1.5, MaxSetsPerPool); //grown for next allocations
+    SetsPerPool = FMath::Min<uint32>((uint32)(MaxSets * 1.5), MaxSetsPerPool); //grown for next allocations
     
     ReadyPools.Add(NewPool);
 }
@@ -118,13 +118,13 @@ VkDescriptorPool FDescriptorAllocator::GetPool(VkDevice Device)
 {
     VkDescriptorPool NewPool;
     if (ReadyPools.Num() > 0){
-        NewPool = ReadyPools.Pop();
+        NewPool = ReadyPools.PopElement();
     }
     else {
         //Need to create a new pool
         NewPool = CreatePool(Device, SetsPerPool, Ratios);
         
-        SetsPerPool = FMath::Min<uint32>(SetsPerPool * 1.5, MaxSetsPerPool);
+        SetsPerPool = FMath::Min<uint32>(uint32(SetsPerPool * 1.5), MaxSetsPerPool);
     }
     
     return NewPool;
@@ -155,7 +155,7 @@ VkDescriptorPool FDescriptorAllocator::CreatePool(VkDevice Device, uint32 SetCou
 void FDescriptorWriter::WriteImage(int Binding, VkImageView Image, VkSampler Sampler, VkImageLayout Layout,
     VkDescriptorType Type)
 {
-    VkDescriptorImageInfo& Info = ImageInfos.emplace_back(VkDescriptorImageInfo{
+    VkDescriptorImageInfo& Info = ImageInfos.Emplace(VkDescriptorImageInfo{
         .sampler = Sampler,
         .imageView = Image,
         .imageLayout = Layout,
@@ -174,7 +174,7 @@ void FDescriptorWriter::WriteImage(int Binding, VkImageView Image, VkSampler Sam
 
 void FDescriptorWriter::WriteBuffer(int Binding, VkBuffer Buffer, size_t Size, size_t Offset, VkDescriptorType Type)
 {
-    VkDescriptorBufferInfo& Info = BufferInfos.emplace_back(VkDescriptorBufferInfo{
+    VkDescriptorBufferInfo& Info = BufferInfos.Emplace(VkDescriptorBufferInfo{
         .buffer = Buffer,
         .offset = Offset,
         .range = Size,
@@ -193,9 +193,9 @@ void FDescriptorWriter::WriteBuffer(int Binding, VkBuffer Buffer, size_t Size, s
 
 void FDescriptorWriter::Clear()
 {
-    ImageInfos.clear();
+    ImageInfos.Clear();
     Writes.Clear();
-    BufferInfos.clear();
+    BufferInfos.Clear();
 }
 
 void FDescriptorWriter::UpdateSet(VkDevice Device, VkDescriptorSet Set)

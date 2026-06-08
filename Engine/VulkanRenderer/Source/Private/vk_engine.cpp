@@ -29,6 +29,7 @@
 #include "Transform.h"
 #include "Containers/StaticArray.h"
 #include "fmt/core.h"
+#include "Libraries/Conversions.h"
 
 VulkanEngine* LoadedEngine = nullptr;
 
@@ -114,11 +115,22 @@ bool VulkanEngine::Init()
     assert(LoadedEngine == nullptr);
     LoadedEngine = this;
 
+    
+    SDL_version Compiled, Linked;
+    SDL_VERSION(&Compiled);
+    SDL_GetVersion(&Linked);
+    fmt::println("SDL compiled: {}.{}.{}", Compiled.major, Compiled.minor, Compiled.patch);
+    fmt::println("SDL linked:   {}.{}.{}", Linked.major, Linked.minor, Linked.patch);
+    
     // We initialize SDL and create a window with it.
-    SDL_Init(SDL_INIT_VIDEO);
+    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    {
+        fmt::println("SDL_Init failed: {}", SDL_GetError());
+        abort();
+    }
 
     SDL_WindowFlags WindowFlags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-
+    fmt::println("Extent: {}x{}", WindowExtent.width, WindowExtent.height);
     Window = SDL_CreateWindow(
         "Vulkan Engine",
         SDL_WINDOWPOS_UNDEFINED,
@@ -127,6 +139,8 @@ bool VulkanEngine::Init()
         WindowExtent.height,
         WindowFlags
     );
+    fmt::println("Window ptr: {}", (void*)Window);
+    fmt::println("SDL_GetError: {}", SDL_GetError());
 
     fmt::println("Init vulkan");
     InitVulkan();
@@ -168,7 +182,7 @@ void VulkanEngine::Cleanup()
 
         vkDeviceWaitIdle(Device);
         
-        LoadedScenes.clear();
+        LoadedScenes.Clear();
         
         for (int i = 0; i < FRAME_OVERLAP; i++)
         {
@@ -329,8 +343,8 @@ void VulkanEngine::DrawGeometry(VkCommandBuffer Cmd)
                 VkViewport viewport = {};
                 viewport.x = 0;
                 viewport.y = 0;
-                viewport.width = DrawExtent.width;
-                viewport.height = DrawExtent.height;
+                viewport.width = (float)DrawExtent.width;
+                viewport.height = (float)DrawExtent.height;
                 viewport.minDepth = 0.f;
                 viewport.maxDepth = 1.f;
 
@@ -339,8 +353,8 @@ void VulkanEngine::DrawGeometry(VkCommandBuffer Cmd)
                 VkRect2D scissor = {};
                 scissor.offset.x = 0;
                 scissor.offset.y = 0;
-                scissor.extent.width = viewport.width;
-                scissor.extent.height = viewport.height;
+                scissor.extent.width = (uint32)viewport.width;
+                scissor.extent.height = (uint32)viewport.height;
 
                 vkCmdSetScissor(Cmd, 0, 1, &scissor);
             }
@@ -438,7 +452,7 @@ void FMeshNode::Draw(const FMatrix& TopMatrix, FDrawContext& Ctx)
 {
     FMatrix NodeMatrix = TopMatrix * WorldTransform;
     
-    for (const auto& Surface : Mesh->Surfaces)
+    for (auto& Surface : Mesh->Surfaces)
     {
         FRenderObject Def;
         Def.IndexCount = Surface.Count;
@@ -578,8 +592,8 @@ void VulkanEngine::Draw()
     
     VK_CHECK(vkResetFences(Device, 1, &GetCurrentFrame().RenderFence));
     
-    DrawExtent.height = FMath::Min(SwapchainExtent.height, DrawImage.ImageExtent.height) * RenderScale;
-    DrawExtent.width = FMath::Min(SwapchainExtent.width, DrawImage.ImageExtent.width) * RenderScale;
+    DrawExtent.height = (uint32)(FMath::Min<float>(SwapchainExtent.height, DrawImage.ImageExtent.height) * RenderScale);
+    DrawExtent.width = (uint32)(FMath::Min<float>(SwapchainExtent.width, DrawImage.ImageExtent.width) * RenderScale);
     
     //request image from swapchain
     uint32_t SwapchainImageIndex;
@@ -737,7 +751,7 @@ void VulkanEngine::Run()
             
             ImGui::Text("Selected Effect: ", Selected.Name);
             
-            ImGui::SliderInt("Effect Index", &CurrentBackgroundEffect, 0, BackgroundEffects.Num() - 1);
+            ImGui::SliderInt("Effect Index", &CurrentBackgroundEffect, 0, (int32)BackgroundEffects.Num() - 1);
             
             ImGui::SliderFloat4("Data1", (float*)&Selected.Data.Data1, 0.0, 1.0);
             ImGui::SliderFloat4("Data2", (float*)&Selected.Data.Data2, 0.0, 1.0);
@@ -1071,11 +1085,11 @@ void VulkanEngine::InitPipelines()
 void VulkanEngine::InitRenderable()
 {
     FString StructurePath = {"Meshes/Structure.glb"};
-    auto StructureFile = LoadGltfMeshes(*this, StructurePath);
+    FOptionalGltfData StructureFile = LoadGltfMeshes(*this, StructurePath);
     
-    assert(StructureFile.has_value());
+    assert(StructureFile);
     
-    LoadedScenes["Structure"] = std::move(*StructureFile);
+    LoadedScenes["Structure"] = MoveTemp(*StructureFile);
 }
 
 void VulkanEngine::InitBackgroundPipelines()
@@ -1391,11 +1405,11 @@ void VulkanEngine::InitVulkan()
     
     //make instance with debug
     auto ResInstance = builder.set_app_name("Chimera Engine")
-    .request_validation_layers(bUseValidationLayers)
-    .use_default_debug_messenger()
-    .require_api_version(1, 3, 0)
-    //.set_debug_callback(VulkanDebugCallback)
-    .build();
+        .request_validation_layers(bUseValidationLayers)
+        .use_default_debug_messenger()
+        .require_api_version(1, 3, 0)
+        .set_debug_callback(VulkanDebugCallback)
+        .build();
     
     vkb::Instance VkbInstance = ResInstance.value();
     
@@ -1414,13 +1428,20 @@ void VulkanEngine::InitVulkan()
     
     //Select GPU
     vkb::PhysicalDeviceSelector Selector { VkbInstance };
-    vkb::PhysicalDevice PhysicalDevice = Selector
+    auto SelectResult = Selector
         .set_minimum_version(1,3)
         .set_required_features_13(Features)
         .set_required_features_12(Features12)
         .set_surface(WindowSurface)
-        .select()
-        .value();
+        .select();
+        
+    if (!SelectResult) {
+        // Esto te dice exactamente qué falló
+        fmt::println("Failed to select GPU: {}", SelectResult.error().message());
+        abort();
+    }
+    
+    vkb::PhysicalDevice PhysicalDevice = SelectResult.value();
     
     vkb::DeviceBuilder DeviceBuilder { PhysicalDevice };
     vkb::Device VkbDevice = DeviceBuilder.build().value();
@@ -1601,11 +1622,12 @@ void VulkanEngine::CreateSwapchain(uint32_t width, uint32_t height)
     
     //store swapchain and related images
     Swapchain = vkbSwapchain.swapchain;
-    SwapchainImages = vkbSwapchain.get_images().value();
+    
+    SwapchainImages = Chimera::Conversions::ConvertContainer<eastl::vector<VkImage>>(vkbSwapchain.get_images().value());
     
     PresentSemaphores.Resize(SwapchainImages.Num());
     
-    SwapchainImageViews = vkbSwapchain.get_image_views().value();
+    SwapchainImageViews = Chimera::Conversions::ConvertContainer<eastl::vector<VkImageView>>(vkbSwapchain.get_image_views().value());
 }
 
 void VulkanEngine::DestroySwapchain()

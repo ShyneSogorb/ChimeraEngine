@@ -1,8 +1,11 @@
 ﻿
 #pragma once
 
-#include <expected>
+#include <EASTL/expected.h>
 
 template <typename T, typename ErrorType>
-using TExpected = std::expected<T, ErrorType>;
-
+struct TExpected{
+    
+private:
+    eastl::expected<T, ErrorType> Expected;
+};

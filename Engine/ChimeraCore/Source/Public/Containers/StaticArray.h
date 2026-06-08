@@ -1,6 +1,6 @@
 ﻿
 #pragma once
-#include <array>
+#include <EASTL/array.h>
 
 template <typename InElementType, size_t N>
 struct TStaticArray
@@ -16,24 +16,20 @@ struct TStaticArray
         for (const auto& Element : InitList)
         {
             if (i >= N) break;
-            Data[i++] = Element;
+            Container[i++] = Element;
         }
     }
     
-    constexpr ElementType& operator[](size_t Index) { return Data[Index]; }
-    constexpr const ElementType& operator[](size_t Index) const { return Data[Index]; }
+    constexpr ElementType& operator[](size_t Index) { return Container[Index]; }
+    constexpr const ElementType& operator[](size_t Index) const { return Container[Index]; }
     
-    constexpr auto begin() { return Data.begin(); }
-    constexpr auto end() { return Data.begin(); }
+    DECLARE_ITERATOR()
     
-    constexpr auto begin() const { return Data.begin(); }
-    constexpr auto end() const { return Data.begin(); }
-    
-    constexpr ElementType* GetData() { return Data; }
-    constexpr const ElementType* GetData() const { return Data; }
+    constexpr ElementType* GetData() { return Container.data(); }
+    constexpr const ElementType* GetData() const { return Container.data(); }
     
 private:
     
-    ElementType Data[N];
+    eastl::array<ElementType, N> Container;
     
 };

@@ -21,7 +21,6 @@
 #include "Transform.h"
 #include "fmt/core.h"
 #define STB_IMAGE_IMPLEMENTATION
-#include "CoreMinimal.h"
 #include "stb_image.h"
 #include "SmartPointers/SharedPtr.h"
 #include "SmartPointers/SharedRef.h"
@@ -29,6 +28,9 @@
 using FGOptions = fastgltf::Options;
 
 constexpr bool OverrideColors = false;
+
+template<typename T>
+using TArrayShared = TArray<TSharedPtr<T>>;
 
 VkFilter ExtractFilter(fastgltf::Filter Filter)
 {
@@ -71,7 +73,7 @@ VkSamplerMipmapMode ExtractMipmapMode(fastgltf::Filter Filter)
 void FLoadedGltf::Draw(const FMatrix& TopMatrix, FDrawContext& ctx)
 {
     //create renderables from scenenodes
-    for (const auto& Node : TopNodes)
+    for (auto& Node : TopNodes)
     {
         Node->Draw(TopMatrix, ctx);
     }
@@ -114,7 +116,7 @@ FOptionalGltfData LoadGltfMeshes(VulkanEngine& Engine, FPath FilePath)
     
     fmt::print("Loading GLTF file: {}\n", FilePath.string());
     
-    TSharedPtr<FLoadedGltf> Scene = MakeShared<FLoadedGltf>();
+    TSharedRef<FLoadedGltf> Scene = MakeShared<FLoadedGltf>();
     Scene->Creator = &Engine;
     FLoadedGltf& File = *Scene;
     
@@ -200,12 +202,12 @@ FOptionalGltfData LoadGltfMeshes(VulkanEngine& Engine, FPath FilePath)
     //load all textures
     for (fastgltf::Image& Image : Gltf.images)
     {
-        TOptional<FAllocatedImage> Img = LoadImage(Engine, Gltf, Image);
+        TOptional<FAllocatedImage> OptImg = LoadImage(Engine, Gltf, Image);
         
-        if (Img.has_value())
+        if (OptImg)
         {
-            Images.Add(*Img);
-            File.Images[Image.name.c_str()] = *Img;
+            Images.Add(*OptImg);
+            File.Images[Image.name.c_str()] = *OptImg;
         }
         else
         {
@@ -464,7 +466,7 @@ FOptionalGltfData LoadGltfMeshes(VulkanEngine& Engine, FPath FilePath)
     }
     
     // find the top nodes, with no parents
-    for (const auto& Node : Nodes)
+    for (auto& Node : Nodes)
     {
         if (Node->Parent.lock() == nullptr)
         {
@@ -472,8 +474,6 @@ FOptionalGltfData LoadGltfMeshes(VulkanEngine& Engine, FPath FilePath)
             Node->RefreshTransform(FMatrix{1.f});
         }
     }
-    
-    
     
     return Scene;
 }

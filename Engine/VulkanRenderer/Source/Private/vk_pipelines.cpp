@@ -16,12 +16,21 @@ bool vkutil::LoadShaderModule(const char* FilePath, VkDevice Device, VkShaderMod
     
     FString Path = fmt::format("{:s}{:s}", SHADER_PATH, FilePath);
     if (BuildPath) *BuildPath = Path;
-    if (!std::filesystem::exists(Path)) return false;
+    if (!std::filesystem::exists(Path))
+    {
+        fmt::print("Shader file not found: {}\n", Path);
+        return false;
+    }
     
     //Open file
     std::ifstream File(Path, std::ios::ate | std::ios::binary);
     
-    if (!File.is_open()) return false;
+    
+    if (!File.is_open())
+    {
+        fmt::print("Failed to open shader file (already open): {}\n", Path);
+        return false;
+    }
     
     // find what the size of the file is by looking up the location of the cursor
     // because the cursor is at the end, it gives the size directly in bytes
@@ -30,7 +39,7 @@ bool vkutil::LoadShaderModule(const char* FilePath, VkDevice Device, VkShaderMod
     // spirv expects the buffer to be on uint32, so make sure to reserve a int
     // array big enough for the entire file
     TArray<SpirvType> Buffer{};
-    Buffer.Reserve(FileSize / sizeof(SpirvType));
+    Buffer.Resize(FileSize / sizeof(SpirvType));
     
     //put file cursor at beginning
     File.seekg(0);
@@ -52,7 +61,25 @@ bool vkutil::LoadShaderModule(const char* FilePath, VkDevice Device, VkShaderMod
     CreateInfo.pCode = Buffer.GetData();
     
     //Check that the creation goes well
-    return vkCreateShaderModule(Device, &CreateInfo, nullptr, &OutShaderModule) == VK_SUCCESS;
+    if (vkCreateShaderModule(Device, &CreateInfo, nullptr, &OutShaderModule) == VK_SUCCESS)
+    {
+        return true;
+    }
+    else
+    {
+        //try deduce what went wrong
+        if (CreateInfo.codeSize == 0)
+        {
+            fmt::print("Failed to create shader module: code size is 0, likely the file was empty or not read correctly: {}\n", Path);
+        }
+        else if (CreateInfo.pCode == nullptr)        {
+            fmt::print("Failed to create shader module: code pointer is null, likely the file was not read correctly: {}\n", Path);
+        }
+        else {
+            fmt::print("Failed to create shader module for unknown reason: {}\n", Path);
+        }
+        return false;
+    }
 }
 
 void FPipelineBuilder::Clear()
